@@ -1,0 +1,11 @@
+# Nunca subir respaldos con datos de clientes
+diamond-travel-respaldo-*.json
+diamond-travel-clientes-*.csv
+diamond-travel-cotizaciones-*.csv
+respaldo*.json
+*.pdf
+# Archivos temporales
+node_modules/
+.DS_Store
+out-*.pdf
+shots/
