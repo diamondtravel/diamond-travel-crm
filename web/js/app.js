@@ -20,6 +20,7 @@ const VIEWS=[
   {k:"clientes",l:"Clientes",i:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 14.6c2.6.2 4.3 1.9 5 4.9"/>'},
   {k:"embudo",l:"Embudo",i:'<path d="M3 4h18l-7 8.5V19l-4 2v-8.5z"/>'},
   {k:"cotizaciones",l:"Cotizaciones",i:'<path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3v5h5M8.5 13h7M8.5 16.5h4.5"/>'},
+  {k:"reservas",l:"Reservas",i:'<rect x="3.5" y="7" width="17" height="13" rx="2"/><path d="M8.5 7V5.2A1.7 1.7 0 0 1 10.2 3.5h3.6a1.7 1.7 0 0 1 1.7 1.7V7M3.5 12.5h17M10 12.5v2h4v-2"/>'},
   {k:"respaldo",l:"Respaldo",i:'<path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>'},
   {k:"equipo",l:"Equipo",admin:true,i:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.9-3.6 3.6-5.5 7-5.5s6.1 1.9 7 5.5"/><path d="M19 3.5l.8 1.6 1.7.3-1.2 1.2.3 1.7-1.6-.8-1.6.8.3-1.7-1.2-1.2 1.7-.3z"/>'}
 ];
@@ -51,7 +52,7 @@ function icon(path,size){return '<svg viewBox="0 0 24 24" width="'+(size||22)+'"
 
 /* ---------- State ---------- */
 const S={
-  sb:null,session:null,perfil:null,equipo:[],config:{},hist:{},plantillas:[],segs:[],faltaActualizacion:false,segTodos:false,solicitudes:[],faltaFormulario:false,
+  sb:null,session:null,perfil:null,equipo:[],config:{},hist:{},plantillas:[],segs:[],faltaActualizacion:false,segTodos:false,solicitudes:[],faltaFormulario:false,reservas:[],resReady:false,faltaReservas:false,rq:"",restado:"activas",
   meId:null,isAdmin:false,
   ready:false,dbMissing:false,readOnly:false,loadError:null,
   clientes:[],cotizaciones:[],cotReady:false,
@@ -148,6 +149,7 @@ function renderMe(){
 function bannerEstado(){
   if(S.loadError)return '<div class="banner warn">No se pudieron cargar los datos: '+esc(explicarError(S.loadError))+'</div>';
   if(S.faltaActualizacion&&S.isAdmin)return '<div class="banner warn">Falta un paso: ejecuta en Supabase el archivo <b>02-seguimientos-y-plantillas.sql</b> para activar los seguimientos y las plantillas.</div>';
+  if(S.faltaReservas&&S.isAdmin&&S.view!=="reservas")return '<div class="banner warn">Falta un paso para activar las reservas y el voucher de viaje: ejecuta en Supabase el archivo <b>04-reservas.sql</b>.</div>';
   if(S.faltaFormulario&&S.isAdmin)return '<div class="banner warn">Falta un paso para activar el formulario “Cotiza tu viaje”: ejecuta en Supabase el archivo <b>03-formulario-cotiza.sql</b>.</div>';
   return "";
 }
@@ -169,11 +171,13 @@ function viewInicio(){
   const activos=cs.filter(c=>ACTIVAS.includes(c.etapa));
   const potencial=activos.reduce((a,c)=>a+(c.presupuesto||0),0);
   const ganadosMes=cs.filter(c=>c.etapa==="ganado"&&mesClave(c.cerradoEn)===mesKey).length;
-  const proximos=cs
-    .filter(c=>c.etapa!=="perdido"&&c.fechaViaje)
+  const resProx=S.reservas.filter(r=>r.estado!=="cancelada"&&r.estado!=="finalizada").map(r=>({r:r,f:RV.fechasViaje(r).inicio})).map(x=>Object.assign(x,{d:diasHasta(x.f)})).filter(x=>x.d!=null&&x.d>=0&&x.d<=60);
+  const cliRes=new Set(resProx.map(x=>x.r.clienteId));
+  const proximos=resProx.concat(cs
+    .filter(c=>c.etapa!=="perdido"&&c.fechaViaje&&!cliRes.has(c.id))
     .map(c=>({c:c,d:diasHasta(c.fechaViaje)}))
-    .filter(x=>x.d!==null&&x.d>=0&&x.d<=60)
-    .sort((a,b)=>a.d-b.d).slice(0,6);
+    .filter(x=>x.d!==null&&x.d>=0&&x.d<=60))
+    .sort((a,b)=>a.d-b.d).slice(0,8);
   const conteo=ETAPAS.map(e=>({e:e,n:cs.filter(c=>c.etapa===e.k).length}));
   const maxN=Math.max(1,...conteo.map(x=>x.n));
 
@@ -197,10 +201,10 @@ function viewInicio(){
     conteo.map(x=>'<div class="funnel-row"><span>'+esc(x.e.l)+'</span><div class="bar-track"><div class="bar-fill" style="width:'+(x.n/maxN*100)+'%"></div></div><span class="num" style="text-align:right;font-weight:600">'+x.n+'</span></div>').join("")+'</div>';
 
   h+='<div class="panel panel-pad"><div class="section-title"><h2>Viajes en los próximos 60 días</h2></div><div class="list">'+
-    (proximos.length?proximos.map(x=>'<div class="row clickable" data-open="'+esc(x.c.id)+'"><div class="row-main"><span class="row-title">'+esc(x.c.destinos||"Destino por definir")+'</span><span class="row-sub">'+esc(x.c.nombre)+' · '+fmtFecha(x.c.fechaViaje)+'</span></div><span class="pill st-'+esc(x.c.etapa)+'">'+esc(etapaLabel(x.c.etapa))+'</span></div>').join("")
+    (proximos.length?proximos.map(x=>x.r?'<div class="row clickable" data-res="'+esc(x.r.id)+'"><div class="row-main"><span class="row-title">'+esc(x.r.destino||"Destino por definir")+'</span><span class="row-sub">'+esc((x.r.titular||{}).nombre||"")+' · '+fmtFecha(x.f)+' · '+esc(RV.codigo(x.r.numero))+'</span></div><span class="pill res-'+esc(x.r.estado)+'">'+esc(resEstadoL(x.r.estado))+'</span></div>':'<div class="row clickable" data-open="'+esc(x.c.id)+'"><div class="row-main"><span class="row-title">'+esc(x.c.destinos||"Destino por definir")+'</span><span class="row-sub">'+esc(x.c.nombre)+' · '+fmtFecha(x.c.fechaViaje)+'</span></div><span class="pill st-'+esc(x.c.etapa)+'">'+esc(etapaLabel(x.c.etapa))+'</span></div>').join("")
     :'<p class="muted" style="margin:6px 0">No hay viajes con fecha tentativa en los próximos 60 días.</p>')+'</div></div>';
   h+='</div>';
-  h+='<p class="help">Las reservas y los pagos por cobrar se sumarán aquí cuando construyamos esos módulos.</p>';
+  h+='<p class="help">Los pagos por cobrar y por pagar se sumarán aquí cuando construyamos ese módulo.</p>';
   return h;
 }
 
@@ -263,15 +267,15 @@ function viewRespaldo(){
   h+='<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Descargar una copia de seguridad</h2>'+
     '<p class="muted" style="margin:0">Guarda una copia en tu iPad (Archivos o iCloud Drive) al menos una vez por semana. La copia completa (JSON) incluye clientes, historial y cotizaciones, y permite restaurarlos. Nunca la subas a GitHub.</p>'+
     '<div class="chips"><button class="btn btn-gold" data-act="exp-json"'+(S.clientes.length||S.cotizaciones.length?'':' disabled')+'>Copia completa (JSON)</button><button class="btn" data-act="exp-csv"'+(S.clientes.length?'':' disabled')+'>Clientes para Excel (CSV)</button><button class="btn" data-act="exp-csv-q"'+(S.cotizaciones.length?'':' disabled')+'>Cotizaciones para Excel (CSV)</button></div>'+
-    '<p class="help" style="margin:0">'+S.clientes.length+' clientes y '+S.cotizaciones.length+' cotizaciones en la base de datos. La copia completa incluye ambos.</p></div>';
+    '<p class="help" style="margin:0">'+S.clientes.length+' clientes, '+S.cotizaciones.length+' cotizaciones y '+S.reservas.length+' reservas en la base de datos. La copia completa los incluye todos.</p></div>';
   if(S.isAdmin){
     h+='<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Restaurar desde una copia</h2>'+
       '<p class="muted" style="margin:0">Elige un archivo JSON de respaldo, de esta versión web o de la versión que usabas dentro de Claude. Los clientes, su historial y las cotizaciones se guardan conservando los números de cotización; no se borra nada.</p>'+
       '<input type="file" id="impFile" accept=".json,application/json" class="input" style="padding:8px"><div id="impMsg">'+(S.impEstado||'')+'</div></div>';
   }
   if(demos&&S.isAdmin){
-    const dq=S.cotizaciones.filter(q=>q.ejemplo||S.clientes.some(c=>c.ejemplo&&c.id===q.clienteId)).length;
-    h+='<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Clientes de prueba</h2><p class="muted" style="margin:0">Hay '+demos+' clientes marcados como PRUEBA'+(dq?' y '+dq+' cotizaciones asociadas a ellos':'')+'.</p><div><button class="btn btn-danger" data-act="del-demo">Eliminar datos de prueba</button></div></div>';
+    const dq=S.cotizaciones.filter(q=>q.ejemplo||S.clientes.some(c=>c.ejemplo&&c.id===q.clienteId)).length+S.reservas.filter(r=>r.ejemplo||S.clientes.some(c=>c.ejemplo&&c.id===r.clienteId)).length;
+    h+='<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Clientes de prueba</h2><p class="muted" style="margin:0">Hay '+demos+' clientes marcados como PRUEBA'+(dq?' y '+dq+' cotizaciones o reservas asociadas a ellos':'')+'.</p><div><button class="btn btn-danger" data-act="del-demo">Eliminar datos de prueba</button></div></div>';
   }
   return h;
 }
@@ -280,7 +284,7 @@ function viewRespaldo(){
 function render(){
   renderNav();renderMe();
   const v=document.getElementById("view");
-  const fn={inicio:viewInicio,clientes:viewClientes,embudo:viewEmbudo,cotizaciones:viewCotizaciones,respaldo:viewRespaldo,equipo:viewEquipo}[S.view]||viewInicio;
+  const fn={inicio:viewInicio,clientes:viewClientes,embudo:viewEmbudo,cotizaciones:viewCotizaciones,reservas:viewReservas,respaldo:viewRespaldo,equipo:viewEquipo}[S.view]||viewInicio;
   v.innerHTML=fn();
   bindView();
 }
@@ -309,6 +313,8 @@ function bindView(){
   const imp=v.querySelector("#impFile"); if(imp)imp.onchange=()=>importar(imp);
   if(S.view==="equipo")bindEquipo(v);
   if(S.view==="inicio")bindSeguimientos(v);
+  if(S.view==="reservas")bindReservas(v);
+  v.querySelectorAll("[data-res]").forEach(el=>el.onclick=()=>abrirReserva(el.dataset.res));
 }
 
 /* ---------- Client form ---------- */
@@ -429,7 +435,7 @@ function pintarDetalle(){
       '<textarea class="input" id="segTxt" maxlength="1500" placeholder="¿Qué hablaron? ¿Cuál es el próximo paso?"></textarea>'+
       '<div class="sheet-foot" style="justify-content:space-between"><select class="input" id="segEtapa" style="width:auto;flex:1 1 200px" aria-label="Etapa después del seguimiento">'+ETAPAS.map(e=>'<option value="'+e.k+'"'+(e.k===c.etapa?" selected":"")+'>'+(e.k===c.etapa?"Mantener: ":"Pasar a: ")+e.l+'</option>').join("")+'</select><button class="btn btn-gold" id="segSave">Guardar seguimiento</button></div></div>':'')+
 
-    panelCotCliente(c,puede)+
+    panelCotCliente(c,puede)+panelResCliente(c,puede)+
     '<div class="panel panel-pad"><div class="section-title"><h2>Historial</h2><span class="help">Registrado el '+fmtFechaTs(c.creadoEn)+'</span></div><div class="timeline" style="margin-top:10px">'+
       (!histCargado?'<p class="muted">Cargando historial…</p>':hist.length?hist.map(x=>'<div class="tl-item"><span class="tl-dot"></span><div class="tl-body"><span class="tl-meta">'+esc(x.tipo||"Nota")+' · '+fmtFechaHora(x.fecha)+' · '+esc(nombrePersona(x.autor))+'</span><span class="tl-text">'+esc(x.texto)+'</span></div></div>').join(""):'<p class="muted">Sin movimientos.</p>')+
     '</div></div>'+
@@ -440,6 +446,8 @@ function pintarDetalle(){
     '</div>',"","detalle");
   s.querySelectorAll("[data-cot]").forEach(el=>el.onclick=()=>abrirCotizacion(el.dataset.cot));
   const nc=s.querySelector("#dNuevaCot"); if(nc)nc.onclick=()=>abrirEditor(null,{clienteId:c.id});
+  s.querySelectorAll("[data-res]").forEach(el=>el.onclick=()=>abrirReserva(el.dataset.res));
+  const nr=s.querySelector("#dNuevaRes"); if(nr)nr.onclick=()=>abrirEditorRes(null,{clienteId:c.id});
   s.querySelector("#dClose").onclick=()=>{detalleId=null;closeOverlay("detalle");};
   s.querySelectorAll("[data-copy]").forEach(b=>b.onclick=async()=>{try{await navigator.clipboard.writeText(b.dataset.copy);toast("Copiado");}catch(_){toast("Mantén presionado el dato para copiarlo.");}});
   if(!puede)return;
@@ -566,6 +574,7 @@ function pintarCotizacion(){
       '<div class="pass-grid"><div><div class="k">Cliente</div><div class="v">'+esc(c.nombre||"—")+'</div></div><div><div class="k">Destino</div><div class="v">'+esc(v.destinos||"Por definir")+'</div></div>'+
       '<div><div class="k">Fechas</div><div class="v num">'+esc(fechas)+'</div></div><div><div class="k">Pasajeros</div><div class="v">'+esc(D.textoPasajeros(v)||"—")+'</div></div></div></div>'+
       '<div class="pass-stub"><div><div class="brand-sub">'+(r.multiple?(r.elegida!=null?"Opción elegida":r.opciones.length+" opciones"):"Valor total")+'</div><div class="budget">'+esc(totalTxt(q))+'</div></div><div style="font-size:12.5px;color:var(--on-navy-muted)">'+(D.fechaValida(q.fechaVencimiento)?"Válida hasta "+D.fmtFecha(q.fechaVencimiento):"Sin fecha de vigencia")+'</div></div></div>'+
+    panelResCot(q,puede)+
     (chk.ok?'':'<div class="errbox"><b>Para generar el PDF falta completar:</b><ul>'+chk.errores.map(e=>'<li>'+esc(e.msg)+'</li>').join("")+'</ul></div>')+
     '<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Documento PDF</h2>'+
       '<div class="actions"><button class="btn btn-gold" id="qGen"'+(chk.ok?'':' disabled')+'>Generar PDF</button><button class="btn" id="qDown"'+(chk.ok?'':' disabled')+'>Descargar PDF</button></div>'+
@@ -587,6 +596,8 @@ function pintarCotizacion(){
     (puede?'<div class="sheet-foot" style="justify-content:space-between"><div class="chips">'+(S.isAdmin?'<button class="btn btn-danger" id="qDel">Eliminar</button>':'')+'<button class="btn" id="qDup">Duplicar</button></div><button class="btn btn-gold" id="qEdit">Editar cotización</button></div>':'')+
     '</div>',"","cot");
   s.querySelector("#qClose").onclick=()=>{cotId=null;closeOverlay("cot");};
+  s.querySelectorAll("[data-res]").forEach(el=>el.onclick=()=>abrirReserva(el.dataset.res));
+  const cr=s.querySelector("#qCrearRes"); if(cr)cr.onclick=()=>abrirEditorRes(null,{cotizacionId:q.id});
   const g=s.querySelector("#qGen"); if(g)g.onclick=()=>abrirVistaPrevia(clone(q),{guardada:true});
   const d=s.querySelector("#qDown"); if(d)d.onclick=()=>descargarPDF(clone(q),null,d);
   const cp=s.querySelector("#qCopy"); if(cp)cp.onclick=async()=>{try{await navigator.clipboard.writeText(D.mensajeWhatsApp(q));toast("Mensaje copiado");}catch(_){toast("Mantén presionado el mensaje para copiarlo.");}};
@@ -1150,16 +1161,24 @@ function seguimientosPendientes(){
     add("cotizacion",cli(q.clienteId),q,"cotizacion:"+q.id+":"+soloFecha(env),"Cotización "+D.codigo(q.numero)+" enviada hace "+d+(d===1?" día":" días")+", sin respuesta",d,1);
   });
   // 2. Viaje próximo y 3. regreso (cotizaciones aceptadas; o clientes en venta cerrada con fecha de viaje)
-  const aceptadas=vivas.filter(q=>q.estado==="aceptada");
+  const conRes=new Set(S.reservas.filter(r=>r.estado!=="cancelada").map(r=>r.cotizacionId).filter(Boolean));
+  const aceptadas=vivas.filter(q=>q.estado==="aceptada"&&!conRes.has(q.id));
+  const resVivas=S.reservas.filter(r=>r.clienteId&&cli(r.clienteId)&&r.estado!=="cancelada");
+  const cliConRes=new Set(resVivas.map(r=>r.clienteId));
+  const datosRes=r=>{const f=RV.fechasViaje(r);return {destino:r.destino||"",fecha_ida:RV.fmtFecha(f.inicio),fecha_regreso:RV.fmtFecha(f.fin)};};
   if(cfgSeg("viaje").activa){
     const lim=cfgSeg("viaje").dias;
+    resVivas.filter(r=>r.estado!=="finalizada").forEach(r=>{const f=RV.fechasViaje(r).inicio;const d=diasHasta(f);if(d==null||d<0||d>lim)return;
+      add("viaje",cli(r.clienteId),null,"viaje:r:"+r.id+":"+f,(d===0?"Viaja hoy":"Viaja en "+d+(d===1?" día":" días")+" ("+D.fmtFecha(f)+")")+" · reserva "+RV.codigo(r.numero),d,0,datosRes(r));});
     aceptadas.forEach(q=>{const f=(q.viaje||{}).fechaIda;const d=diasHasta(f);if(d==null||d<0||d>lim)return;
       add("viaje",cli(q.clienteId),q,"viaje:"+q.id+":"+f,d===0?"Viaja hoy":"Viaja en "+d+(d===1?" día":" días")+" ("+D.fmtFecha(f)+")",d,0);});
-    S.clientes.filter(c=>c.etapa==="ganado"&&c.fechaViaje&&!aceptadas.some(q=>q.clienteId===c.id)).forEach(c=>{const d=diasHasta(c.fechaViaje);if(d==null||d<0||d>lim)return;
+    S.clientes.filter(c=>c.etapa==="ganado"&&c.fechaViaje&&!cliConRes.has(c.id)&&!aceptadas.some(q=>q.clienteId===c.id)).forEach(c=>{const d=diasHasta(c.fechaViaje);if(d==null||d<0||d>lim)return;
       add("viaje",c,null,"viaje:c:"+c.id+":"+c.fechaViaje,d===0?"Viaja hoy":"Viaja en "+d+(d===1?" día":" días")+" ("+D.fmtFecha(c.fechaViaje)+")",d,0);});
   }
   if(cfgSeg("regreso").activa){
     const min=Math.max(1,cfgSeg("regreso").dias);
+    resVivas.forEach(r=>{const f=RV.fechasViaje(r).fin;const d=f?-diasHasta(f):null;if(d==null||d<min||d>30)return;
+      add("regreso",cli(r.clienteId),null,"regreso:r:"+r.id+":"+f,"Regresó de "+(r.destino||"su viaje")+" hace "+d+(d===1?" día":" días")+" · reserva "+RV.codigo(r.numero),d,3,datosRes(r));});
     aceptadas.forEach(q=>{const f=(q.viaje||{}).fechaRegreso;const d=f?-diasHasta(f):null;if(d==null||d<min||d>30)return;
       add("regreso",cli(q.clienteId),q,"regreso:"+q.id+":"+f,"Regresó de "+((q.viaje||{}).destinos||"su viaje")+" hace "+d+(d===1?" día":" días"),d,3);});
   }
@@ -1395,6 +1414,549 @@ async function guardarCot(modo){
   else toast("Borrador guardado: "+D.codigo(saved.numero));
 }
 
+/* =====================================================================
+   RESERVAS Y VOUCHER DE VIAJE
+   ===================================================================== */
+const RV=window.DTRes;
+const resEstadoL=k=>(RV.ESTADOS.find(e=>e.k===k)||{l:k}).l;
+const RES_ACTIVA=r=>r.estado!=="cancelada"&&r.estado!=="finalizada";
+function fechasResTxt(r){const f=RV.fechasViaje(r);return f.inicio?RV.fmtFecha(f.inicio)+(f.fin&&f.fin!==f.inicio?" – "+RV.fmtFecha(f.fin):""):"Fechas por definir";}
+function resDeCot(qid){return S.reservas.find(r=>r.cotizacionId===qid&&r.estado!=="cancelada");}
+
+/* ----- Lista ----- */
+function filtrarRes(){
+  const t=S.rq.trim().toLowerCase();
+  return S.reservas.filter(r=>{
+    if(S.restado==="activas"&&!RES_ACTIVA(r))return false;
+    if(S.restado!=="activas"&&S.restado!=="todas"&&r.estado!==S.restado)return false;
+    if(!t)return true;
+    return [RV.codigo(r.numero),(r.titular||{}).nombre,(r.titular||{}).telefono,r.destino,...(r.pasajeros||[]).map(p=>p.nombre),...(r.vuelos||[]).map(v=>v.codigoReserva)].some(x=>String(x||"").toLowerCase().includes(t));
+  }).sort((a,b)=>{
+    const fa=RV.fechasViaje(a).inicio||"9999",fb=RV.fechasViaje(b).inicio||"9999";
+    return RES_ACTIVA(a)===RES_ACTIVA(b)?fa.localeCompare(fb)||(b.numero-a.numero):(RES_ACTIVA(a)?-1:1);
+  });
+}
+function resCardHTML(r){
+  const f=RV.fechasViaje(r),d=f.inicio?diasHasta(f.inicio):null,al=RV.alertas(r).length;
+  return '<div class="q-card" data-res="'+esc(r.id)+'">'+
+    '<div style="min-width:0;display:flex;flex-direction:column;gap:2px"><span class="q-code">'+esc(RV.codigo(r.numero))+'</span><span style="font-weight:600;font-size:15.5px;overflow-wrap:anywhere">'+esc((r.titular||{}).nombre||"Sin titular")+(r.ejemplo?' <span class="tag-demo">Prueba</span>':'')+'</span></div>'+
+    '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><span class="pill res-'+esc(r.estado)+'">'+esc(resEstadoL(r.estado))+'</span>'+
+      (RES_ACTIVA(r)&&d!=null&&d>=0?'<span class="help num">'+(d===0?"Viaja hoy":"Viaja en "+d+(d===1?" día":" días"))+'</span>':'')+'</div>'+
+    '<div class="q-meta"><span>'+esc(r.destino||"Destino por definir")+'</span><span>'+esc(fechasResTxt(r))+'</span>'+(RV.textoPasajeros(r)?'<span>'+esc(RV.textoPasajeros(r))+'</span>':'')+
+      (r.voucherEnviadoEn?'<span>Voucher enviado '+fmtFechaTs(r.voucherEnviadoEn)+'</span>':(RES_ACTIVA(r)?'<span class="flag">Voucher sin enviar</span>':''))+
+      (al&&RES_ACTIVA(r)?'<span class="flag">'+al+(al===1?" dato pendiente":" datos pendientes")+'</span>':'')+'</div></div>';
+}
+function listaResHTML(){const l=filtrarRes();return l.length?l.map(resCardHTML).join(""):'<div class="empty"><p class="muted">Ninguna reserva coincide con la búsqueda.</p></div>';}
+function viewReservas(){
+  let h='<div class="page-head"><div><span class="eyebrow">Viajes vendidos</span><h1>Reservas</h1></div>'+
+    (S.readOnly||S.dbMissing||S.faltaReservas?'':'<button class="btn btn-gold" data-act="nueva-res">'+icon(ICON_PLUS,18)+'Nueva reserva</button>')+'</div>';
+  h+=bannerEstado();
+  if(S.faltaReservas)return h+'<div class="panel empty"><h2 style="font-family:var(--f-display);font-size:22px">Falta activar las reservas</h2><p class="muted">'+(S.isAdmin?'Ejecuta en Supabase el archivo <b>04-reservas.sql</b> (SQL Editor → New query → pegar → Run).':'El administrador debe terminar de activar este módulo.')+'</p></div>';
+  if(!S.resReady&&!S.dbMissing)return h+'<div class="panel empty"><p class="muted">Cargando reservas…</p></div>';
+  if(!S.reservas.length)return h+'<div class="panel empty"><h2 style="font-family:var(--f-display);font-size:22px">Aún no hay reservas</h2>'+
+    '<p class="muted">Cuando un cliente acepte una cotización, ábrela y toca <b>Crear reserva</b>: se copian el cliente, los pasajeros, las fechas, el hotel y los vuelos. Luego completas los datos confirmados y generas el voucher de viaje en PDF.</p>'+
+    (S.readOnly||S.dbMissing?'':'<button class="btn btn-gold" data-act="nueva-res">Crear una reserva</button>')+'</div>';
+  const cuenta=k=>S.reservas.filter(r=>r.estado===k).length;
+  h+='<div class="toolbar"><input class="input search" id="rq" type="search" placeholder="Buscar por número, titular, pasajero, destino o código de reserva" value="'+esc(S.rq)+'" aria-label="Buscar reservas">'+
+    '<select class="input" id="re" style="width:auto;flex:0 1 230px" aria-label="Filtrar por estado"><option value="activas"'+(S.restado==="activas"?" selected":"")+'>Activas ('+S.reservas.filter(RES_ACTIVA).length+')</option><option value="todas"'+(S.restado==="todas"?" selected":"")+'>Todas ('+S.reservas.length+')</option>'+
+    RV.ESTADOS.map(e=>'<option value="'+e.k+'"'+(S.restado===e.k?" selected":"")+'>'+e.l+' ('+cuenta(e.k)+')</option>').join("")+'</select></div>';
+  h+='<div class="panel" id="resList">'+listaResHTML()+'</div>';
+  return h;
+}
+function bindReservas(v){
+  v.querySelectorAll('[data-act="nueva-res"]').forEach(b=>b.onclick=()=>abrirEditorRes(null));
+  v.querySelectorAll("[data-res]").forEach(el=>el.onclick=()=>abrirReserva(el.dataset.res));
+  const rq=v.querySelector("#rq");
+  if(rq)rq.oninput=()=>{S.rq=rq.value;const L=v.querySelector("#resList");L.innerHTML=listaResHTML();L.querySelectorAll("[data-res]").forEach(el=>el.onclick=()=>abrirReserva(el.dataset.res));};
+  const re=v.querySelector("#re");if(re)re.onchange=()=>{S.restado=re.value;render();};
+}
+function panelResCliente(c,puede){
+  if(S.faltaReservas)return "";
+  const rs=S.reservas.filter(r=>r.clienteId===c.id).sort((a,b)=>(b.numero||0)-(a.numero||0));
+  return '<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:8px"><div class="section-title"><h2>Reservas</h2>'+(puede?'<button class="btn btn-sm" id="dNuevaRes">'+icon(ICON_PLUS,16)+'Nueva reserva</button>':'')+'</div>'+
+    (rs.length?'<div class="list">'+rs.map(r=>'<div class="row clickable" data-res="'+esc(r.id)+'"><div class="row-main"><span class="row-title">'+esc(RV.codigo(r.numero))+' · '+esc(r.destino||"Destino por definir")+'</span><span class="row-sub">'+esc(fechasResTxt(r))+'</span></div><span class="pill res-'+esc(r.estado)+'">'+esc(resEstadoL(r.estado))+'</span></div>').join("")+'</div>'
+      :'<p class="muted" style="margin:0">Este cliente aún no tiene reservas.</p>')+'</div>';
+}
+function panelResCot(q,puede){
+  if(S.faltaReservas||q.estado!=="aceptada")return "";
+  const r=resDeCot(q.id);
+  return '<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:10px"><h2>Reserva</h2>'+
+    (r?'<p class="muted" style="margin:0">Esta cotización ya tiene la reserva <b>'+esc(RV.codigo(r.numero))+'</b> ('+esc(resEstadoL(r.estado))+').</p><div><button class="btn" data-res="'+esc(r.id)+'">Ver reserva '+esc(RV.codigo(r.numero))+'</button></div>'
+      :'<p class="muted" style="margin:0">El cliente aceptó: crea la reserva para registrar los vuelos, el hotel y las actividades confirmadas y generar el voucher de viaje.</p>'+(puede?'<div><button class="btn btn-gold" id="qCrearRes">Crear reserva con esta cotización</button></div>':''))+'</div>';
+}
+
+/* ----- Ficha de la reserva ----- */
+let resId=null;
+function abrirReserva(id){resId=id;pintarReserva();}
+function pintarReserva(){
+  const r=S.reservas.find(x=>x.id===resId);
+  if(!r){if(resId){closeOverlay("res");resId=null;}return;}
+  const puede=!S.readOnly&&!S.dbMissing;
+  const ti=r.titular||{},chk=RV.validar(r,"voucher"),al=RV.alertas(r);
+  const wa=ti.telefono?D.enlaceWhatsApp(ti.telefono,RV.mensajeWhatsApp(r)):null;
+  const cliExiste=r.clienteId&&S.clientes.some(x=>x.id===r.clienteId);
+  const q=r.cotizacionId&&S.cotizaciones.find(x=>x.id===r.cotizacionId);
+  const kv=(k,x)=>x?'<dt>'+esc(k)+'</dt><dd>'+esc(x)+'</dd>':'';
+  const vuelosTxt=(r.vuelos||[]).map(v=>[v.aerolinea,v.codigoReserva?"código "+String(v.codigoReserva).toUpperCase():"",(v.trayectos||[]).map(t=>[t.origen,t.destino].filter(Boolean).join(" – ")).filter(Boolean).join(" · ")].filter(Boolean).join(" · ")).join("\n");
+  const hotelesTxt=(r.hoteles||[]).map(h=>[h.nombre,h.ciudad,h.entrada?RV.fmtFecha(h.entrada)+" – "+RV.fmtFecha(h.salida):"",h.confirmacion?"conf. "+h.confirmacion:"sin confirmación"].filter(Boolean).join(" · ")).join("\n");
+  const actTxt=(r.actividades||[]).map(sec=>(sec.titulo?sec.titulo+": ":"")+(sec.items||[]).map(a=>a.nombre).filter(Boolean).join(", ")).filter(Boolean).join("\n");
+  const hist=(r.historialEstados||[]).slice().sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
+  const s=openOverlay(
+    '<div class="sheet-head"><span class="eyebrow">Reserva</span><button class="btn btn-ghost btn-sm" id="rClose">Cerrar</button></div>'+
+    '<div class="sheet-body">'+
+    '<div class="pass"><div class="pass-main"><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="pill res-'+esc(r.estado)+'">'+esc(resEstadoL(r.estado))+'</span>'+(r.ejemplo?'<span class="tag-demo">Prueba</span>':'')+'</div>'+
+      '<div class="pass-name">'+esc(RV.codigo(r.numero))+'</div>'+
+      '<div class="pass-grid"><div><div class="k">Titular</div><div class="v">'+esc(ti.nombre||"—")+'</div></div><div><div class="k">Destino</div><div class="v">'+esc(r.destino||"Por definir")+'</div></div>'+
+      '<div><div class="k">Fechas</div><div class="v num">'+esc(fechasResTxt(r))+'</div></div><div><div class="k">Pasajeros</div><div class="v">'+esc(RV.textoPasajeros(r)||"—")+'</div></div></div></div>'+
+      '<div class="pass-stub"><div><div class="brand-sub">Voucher de viaje</div><div class="budget" style="font-size:18px">'+(r.voucherEnviadoEn?"Enviado":"Sin enviar")+'</div></div><div style="font-size:12.5px;color:var(--on-navy-muted)">'+(r.voucherEnviadoEn?"El "+fmtFechaHora(r.voucherEnviadoEn):"Genéralo y envíalo al cliente")+'</div></div></div>'+
+    (chk.ok?'':'<div class="errbox"><b>Para generar el voucher falta completar:</b><ul>'+chk.errores.map(e=>'<li>'+esc(e.msg)+'</li>').join("")+'</ul></div>')+
+    (al.length&&RES_ACTIVA(r)?'<div class="banner warn" style="flex-direction:column;gap:4px"><b>Revisa antes de enviar el voucher:</b><ul style="margin:0;padding-left:18px">'+al.map(x=>'<li>'+esc(x)+'</li>').join("")+'</ul></div>':'')+
+    '<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Voucher de viaje (PDF)</h2>'+
+      '<div class="actions"><button class="btn btn-gold" id="rGen"'+(chk.ok?'':' disabled')+'>Ver voucher</button><button class="btn" id="rDown"'+(chk.ok?'':' disabled')+'>Descargar voucher</button></div>'+
+      '<p class="help" style="margin:0">El voucher no incluye los números de documento de los pasajeros: esos quedan solo en el CRM.</p></div>'+
+    '<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Enviar por WhatsApp</h2>'+
+      (wa?'<div class="actions"><a class="btn" id="rWa" href="'+esc(wa)+'" target="_blank" rel="noopener">Abrir WhatsApp con el mensaje</a><button class="btn" id="rCopy">Copiar mensaje</button>'+(puede&&!r.voucherEnviadoEn?'<button class="btn" id="rMarcar">Marcar como enviado</button>':'')+'</div>'+
+        '<p class="help" style="margin:0;white-space:pre-line">'+esc(RV.mensajeWhatsApp(r))+'</p><p class="help" style="margin:0">Después de abrir la conversación, adjunta el PDF del voucher que descargaste.</p>'
+        :'<p class="muted" style="margin:0">La reserva no tiene el WhatsApp del titular. Agrégalo en Editar.</p>')+'</div>'+
+    '<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Estado</h2>'+
+      (puede?'<select class="input" id="rEstado" aria-label="Cambiar estado">'+RV.ESTADOS.map(e=>'<option value="'+e.k+'"'+(e.k===r.estado?" selected":"")+'>'+e.l+'</option>').join("")+'</select>':'')+
+      (hist.length?'<div class="timeline">'+hist.map(x=>'<div class="tl-item"><span class="tl-dot"></span><div class="tl-body"><span class="tl-meta">'+fmtFechaHora(x.fecha)+' · '+esc(nombrePersona(x.autor))+'</span><span class="tl-text">'+esc(resEstadoL(x.estado))+'</span></div></div>').join("")+'</div>':'')+'</div>'+
+    '<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><div class="section-title"><h2>Resumen</h2><div class="actions">'+(cliExiste?'<button class="btn btn-sm" id="rCli">Ver cliente</button>':'')+(q?'<button class="btn btn-sm" id="rCot">Ver cotización '+esc(D.codigo(q.numero))+'</button>':'')+'</div></div><dl class="kv">'+
+      kv("WhatsApp",D.fmtTel(ti.telefono))+kv("Correo",ti.email)+kv("Asesor(a)",r.asesorNombre)+
+      kv("Pasajeros",(r.pasajeros||[]).map(p=>p.nombre+" ("+(RV.TIPOS_PAX.find(t=>t.k===p.tipo)||{l:""}).l.toLowerCase()+(p.docNumero?" · "+(p.docTipo||"Doc.")+" "+p.docNumero:"")+")").join("\n"))+
+      kv("Vuelos",vuelosTxt)+kv("Hospedaje",hotelesTxt)+kv("Traslados",(r.traslados||[]).length?String(r.traslados.length):"")+kv("Actividades",actTxt)+
+      kv("Asistencia médica",[(r.asistencia||{}).compania,(r.asistencia||{}).voucher].filter(Boolean).join(" · "))+
+    '</dl></div>'+
+    (puede?'<div class="sheet-foot" style="justify-content:space-between"><div class="chips">'+(S.isAdmin?'<button class="btn btn-danger" id="rDel">Eliminar</button>':'')+'<button class="btn" id="rDup">Duplicar</button></div><button class="btn btn-gold" id="rEdit">Editar reserva</button></div>':'')+
+    '</div>',"","res");
+  s.querySelector("#rClose").onclick=()=>{resId=null;closeOverlay("res");};
+  const g=s.querySelector("#rGen");if(g)g.onclick=()=>abrirVoucher(clone(r),{guardada:true});
+  const d=s.querySelector("#rDown");if(d)d.onclick=()=>descargarVoucher(clone(r),null);
+  const w=s.querySelector("#rWa");if(w)w.addEventListener("click",()=>{if(puede&&!r.voucherEnviadoEn)setTimeout(()=>marcarVoucherEnviado(r),0);});
+  const cp=s.querySelector("#rCopy");if(cp)cp.onclick=async()=>{try{await navigator.clipboard.writeText(RV.mensajeWhatsApp(r));toast("Mensaje copiado");}catch(_){toast("Mantén presionado el mensaje para copiarlo.");}};
+  const mk=s.querySelector("#rMarcar");if(mk)mk.onclick=()=>marcarVoucherEnviado(r);
+  const es=s.querySelector("#rEstado");if(es)es.onchange=()=>cambiarEstadoRes(r,es.value);
+  const cl=s.querySelector("#rCli");if(cl)cl.onclick=()=>abrirDetalle(r.clienteId);
+  const cq=s.querySelector("#rCot");if(cq)cq.onclick=()=>abrirCotizacion(r.cotizacionId);
+  const ed=s.querySelector("#rEdit");if(ed)ed.onclick=()=>abrirEditorRes(r.id);
+  const du=s.querySelector("#rDup");if(du)du.onclick=()=>abrirEditorRes(null,{duplicarDe:r.id});
+  const de=s.querySelector("#rDel");if(de)de.onclick=async()=>{
+    if(!(await confirmar("¿Eliminar la reserva "+RV.codigo(r.numero)+"?","Se borrará definitivamente con todos sus datos. El número no se vuelve a usar.","Eliminar definitivamente",true)))return;
+    if(await guardar(()=>api.borrarReserva(r.id))){resId=null;closeOverlay("res");toast("Reserva eliminada");}
+  };
+}
+async function marcarVoucherEnviado(r){
+  const ahora=new Date().toISOString();
+  if(!(await guardar(()=>api.actualizarReserva(r.id,{voucherEnviadoEn:ahora}))))return;
+  if(r.clienteId&&S.clientes.some(c=>c.id===r.clienteId)){
+    await api.agregarHistorial(r.clienteId,"WhatsApp","Voucher de viaje "+RV.codigo(r.numero)+" enviado al cliente.");
+    await guardar(()=>api.actualizarCliente(r.clienteId,{ultimoContacto:ahora}));
+  }
+  toast("Voucher marcado como enviado");
+}
+async function cambiarEstadoRes(r,nuevo){
+  if(r.estado===nuevo)return;
+  const hist=(r.historialEstados||[]).slice();hist.push({estado:nuevo,fecha:new Date().toISOString(),autor:S.meId});
+  if(!(await guardar(()=>api.actualizarReserva(r.id,{estado:nuevo,historialEstados:hist})))){pintarReserva();return;}
+  if(r.clienteId&&S.clientes.some(c=>c.id===r.clienteId))await api.agregarHistorial(r.clienteId,"Reserva","Reserva "+RV.codigo(r.numero)+" marcada como “"+resEstadoL(nuevo)+"”.");
+  toast("Estado de la reserva: "+resEstadoL(nuevo));
+}
+
+/* ----- Voucher: generación, vista previa y descarga ----- */
+const voucherCache={};
+async function construirVoucher(r){
+  const PDFLib=await cargarPdfLib();
+  const bytes=await RV.generarPDF(r,{PDFLib:PDFLib,logoPng:await logoPng(),hoy:hoyISO()});
+  if(r.id)voucherCache[r.id]={v:r.actualizadoEn||"",bytes:bytes};
+  return bytes;
+}
+async function abrirVoucher(r,opts){
+  const guardada=!!(opts&&opts.guardada);
+  const chk=RV.validar(r,"voucher");
+  const tel=(r.titular||{}).telefono;
+  const s=openOverlay(
+    '<div class="sheet-head"><h2>'+(guardada?"Voucher ":"Vista previa ")+esc(r.numero?RV.codigo(r.numero):"(sin guardar)")+'</h2><button class="btn btn-ghost btn-sm" id="vvClose">Cerrar</button></div>'+
+    '<div class="sheet-body">'+
+    (guardada?'':'<div class="banner info">Vista previa con los datos actuales del formulario. Para descargar el voucher, guarda primero la reserva.</div>')+
+    (chk.ok?'':'<div class="errbox"><b>El voucher aún no está completo:</b><ul>'+chk.errores.map(e=>'<li>'+esc(e.msg)+'</li>').join("")+'</ul></div>')+
+    '<p class="help" id="vvStatus" style="margin:0" role="status">Generando el voucher…</p>'+
+    (guardada?'<div class="actions" id="vvActs" hidden><button class="btn btn-gold" id="vvDown">Descargar voucher</button><button class="btn" id="vvOpen">Abrir PDF para compartir</button>'+(tel?'<a class="btn" id="vvWa" href="'+esc(D.enlaceWhatsApp(tel,RV.mensajeWhatsApp(r)))+'" target="_blank" rel="noopener">Abrir WhatsApp con el mensaje</a>':'')+'</div>':'')+
+    '<div class="pv-pages" id="vvPages"><p class="muted" style="margin:24px 0">Preparando las páginas…</p></div>'+
+    '</div>',"wide","vpreview");
+  s.querySelector("#vvClose").onclick=()=>closeOverlay("vpreview");
+  const st=s.querySelector("#vvStatus");
+  let bytes;
+  try{bytes=await construirVoucher(r);}
+  catch(e){console.error(e);st.textContent="No se pudo cargar el generador de PDF. Revisa tu conexión a internet e intenta de nuevo.";st.className="err";s.querySelector("#vvPages").innerHTML="";return;}
+  if(!hayCapa("vpreview"))return;
+  const acts=s.querySelector("#vvActs");
+  if(acts){
+    acts.hidden=false;
+    s.querySelector("#vvDown").onclick=()=>descargarVoucher(r,bytes);
+    s.querySelector("#vvOpen").onclick=()=>{const u=URL.createObjectURL(new Blob([bytes],{type:"application/pdf"}));const w=window.open(u,"_blank");if(!w)descargarVoucher(r,bytes);setTimeout(()=>URL.revokeObjectURL(u),60000);};
+    const w=s.querySelector("#vvWa");if(w)w.addEventListener("click",()=>{const x=S.reservas.find(y=>y.id===r.id);if(x&&!x.voucherEnviadoEn&&!S.readOnly)setTimeout(()=>marcarVoucherEnviado(x),0);});
+  }
+  try{
+    const n=await renderPaginas(bytes,s.querySelector("#vvPages"));
+    st.textContent="Voucher generado: "+n+(n===1?" página":" páginas")+" · "+kb(bytes.length)+(guardada?" · "+RV.nombreArchivo(r):"");
+  }catch(e){
+    console.error(e);
+    st.textContent="El voucher se generó ("+kb(bytes.length)+"), pero la vista previa no se pudo mostrar en este dispositivo."+(guardada?" Descárgalo para revisarlo.":"");
+    s.querySelector("#vvPages").innerHTML="";
+  }
+}
+function descargarVoucher(r,bytes){
+  if(!RV.validar(r,"voucher").ok){toast("Completa la reserva antes de descargar el voucher.");return;}
+  const c=r.id&&voucherCache[r.id];
+  if(!bytes&&c&&c.v===(r.actualizadoEn||""))bytes=c.bytes;
+  if(!bytes){abrirVoucher(r,{guardada:true});return;}
+  descargarArchivo(RV.nombreArchivo(r),new Blob([bytes],{type:"application/pdf"}));
+  toast("Voucher descargado: "+RV.nombreArchivo(r));
+}
+
+/* ----- Editor de la reserva (pestañas fijas arriba; solo el contenido se desplaza) ----- */
+const TABS_RES=[{k:"viaje",l:"1. Viaje y pasajeros"},{k:"vuelos",l:"2. Vuelos"},{k:"hoteles",l:"3. Hospedaje"},{k:"traslados",l:"4. Traslados"},{k:"actividades",l:"5. Actividades"},{k:"incluye",l:"6. Incluye y asistencia"}];
+const TIPOS_TRASLADO=["Aeropuerto → hotel","Hotel → aeropuerto","Terrestre entre ciudades","Lancha o transporte marítimo","Hotel → actividad"];
+let RE=null,rTab="viaje",rErrores=[],rBase="",rGuardando=false,rBusca="";
+function reservaNueva(){const r=RV.reservaVacia();r.asesorId=S.meId;r.asesorNombre=(S.perfil||{}).nombre||"";r.historialEstados=[];return r;}
+function paxDesdeConteo(nombre,ad,ni,inf){
+  const l=[];for(let i=0;i<Math.max(ad||0,nombre?1:0);i++)l.push(RV.pasajeroVacio("adulto",i===0?nombre:""));
+  for(let i=0;i<(ni||0);i++)l.push(RV.pasajeroVacio("nino",""));
+  for(let i=0;i<(inf||0);i++)l.push(RV.pasajeroVacio("infante",""));
+  return l;
+}
+function reservaDesdeCot(q){
+  const r=reservaNueva(),v=q.viaje||{},c=q.cliente||{},rq=D.calcular(q);
+  r.clienteId=q.clienteId||null;r.cotizacionId=q.id;
+  r.titular={nombre:c.nombre||"",telefono:c.telefono||"",email:c.email||""};
+  r.destino=v.destinos||"";r.fechaInicio=v.fechaIda||"";r.fechaFin=v.fechaRegreso||"";
+  r.pasajeros=paxDesdeConteo(c.nombre||"",D.enteroONulo(v.adultos)||0,D.enteroONulo(v.ninos)||0,D.enteroONulo(v.infantes)||0);
+  const tramos=(v.tramos||[]).filter(t=>t.fecha||t.ruta||t.vuelo);
+  if(tramos.length||v.aerolinea){
+    const vu=RV.vueloVacio();vu.aerolinea=v.aerolinea||"";vu.equipaje=v.equipaje||"";
+    vu.trayectos=tramos.length?tramos.map(t=>{const p=String(t.ruta||"").split(/\s*[–—-]\s*|\s+a\s+/);return Object.assign(RV.trayectoVacio(t.fecha&&t.fecha===v.fechaRegreso?"regreso":"ida"),{fecha:t.fecha||"",origen:p[0]||"",destino:p.slice(1).join(" – "),vuelo:t.vuelo||"",salida:t.salida||"",llegada:t.llegada||""});})
+      :[Object.assign(RV.trayectoVacio("ida"),{fecha:v.fechaIda||"",origen:v.ciudadSalida||"",destino:v.destinos||""}),Object.assign(RV.trayectoVacio("regreso"),{fecha:v.fechaRegreso||"",origen:v.destinos||"",destino:v.ciudadSalida||""})];
+    r.vuelos=[vu];
+  }
+  if(v.hotel){
+    const op=rq.elegida!=null?rq.opciones[rq.elegida]:null;
+    r.hoteles=[Object.assign(RV.hotelVacio(),{nombre:v.hotel,ciudad:v.destinos||"",entrada:v.fechaIda||"",salida:v.fechaRegreso||"",habitacion:v.habitacion||"",adultos:D.enteroONulo(v.adultos),ninos:D.enteroONulo(v.ninos),
+      alimentacion:RV.ALIMENTACION.find(a=>a.toLowerCase()===String(v.regimen||"").toLowerCase())||(v.regimen?"":""),alimentacionDetalle:[v.regimen&&!RV.ALIMENTACION.some(a=>a.toLowerCase()===String(v.regimen).toLowerCase())?v.regimen:"",op&&op.nombre?"Plan elegido: "+op.nombre:""].filter(Boolean).join(" · ")})];
+  }
+  if(v.traslados)r.traslados=[Object.assign(RV.trasladoVacio(),{tipo:v.traslados})];
+  if(v.tours)r.actividades=[{titulo:"Actividades en "+(v.destinos||"destino"),items:[Object.assign(RV.actividadVacia(),{nombre:"",incluye:v.tours})]}];
+  r.incluye=(q.servicios||[]).filter(x=>x.descripcion).map(x=>({descripcion:x.descripcion,incluido:x.incluido!==false}));
+  if(v.asistencia)r.asistencia.compania=v.asistencia;
+  r.asesorNombre=q.asesorNombre||r.asesorNombre;
+  return r;
+}
+function abrirEditorRes(id,opts){
+  if(S.readOnly||S.dbMissing){toast("No puedes guardar cambios en este modo.");return;}
+  if(S.faltaReservas){toast("Falta ejecutar la actualización 4 de la base de datos (04-reservas.sql).");return;}
+  opts=opts||{};
+  if(id){const r=S.reservas.find(x=>x.id===id);if(!r)return;RE=completar(reservaNueva(),clone(r));}
+  else if(opts.duplicarDe){
+    const src=S.reservas.find(x=>x.id===opts.duplicarDe);if(!src)return;
+    RE=completar(reservaNueva(),clone(src));
+    ["id","numero","creadoEn","creadoPor","actualizadoEn","ejemplo","voucherEnviadoEn"].forEach(k=>delete RE[k]);
+    RE.numero=null;RE.estado="por_confirmar";RE.historialEstados=[];RE.asesorId=S.meId;
+  }else if(opts.cotizacionId){
+    const q=S.cotizaciones.find(x=>x.id===opts.cotizacionId);if(!q)return;RE=reservaDesdeCot(q);
+  }else{
+    RE=reservaNueva();
+    if(opts.clienteId){const c=S.clientes.find(x=>x.id===opts.clienteId);if(c)vincularClienteRes(c,true);}
+  }
+  rTab="viaje";rErrores=[];rBusca="";rGuardando=false;
+  rBase=JSON.stringify(RE);
+  pintarEditorRes(true);
+}
+function vincularClienteRes(c,conPax){
+  RE.clienteId=c.id;RE.titular={nombre:c.nombre||"",telefono:c.telefono||"",email:c.email||""};
+  if(!RE.destino&&c.destinos)RE.destino=c.destinos;
+  if(!RE.fechaInicio&&c.fechaViaje)RE.fechaInicio=c.fechaViaje;
+  if(conPax&&!RE.pasajeros.length)RE.pasajeros=paxDesdeConteo(c.nombre,c.adultos||1,c.ninos||0,0);
+}
+function rf(label,path,t,o){
+  o=o||{};const v=getP(RE,path);const id="r_"+path.replace(/\./g,"_");
+  const campo=o.campo?' data-campo="'+o.campo+'"':'';
+  const bad=o.campo&&rErrores.some(e=>e.campo===o.campo)?" bad":"";
+  const common=' id="'+id+'" data-rk="'+path+'" data-t="'+t+'"'+campo;
+  let input;
+  if(t==="textarea")input='<textarea class="input'+bad+'"'+common+' maxlength="'+(o.max||3000)+'"'+(o.rows?' rows="'+o.rows+'"':'')+(o.ph?' placeholder="'+esc(o.ph)+'"':'')+'>'+esc(v||"")+'</textarea>';
+  else if(t==="select")input='<select class="input'+bad+'"'+common+'>'+o.opts.map(x=>'<option value="'+esc(x[0])+'"'+(x[0]===(v||"")?" selected":"")+'>'+esc(x[1])+'</option>').join("")+'</select>';
+  else if(t==="int")input='<input class="input num'+bad+'"'+common+' type="number" min="0" max="'+(o.maxN||99)+'" step="1" inputmode="numeric" placeholder="'+esc(o.ph||"0")+'" value="'+esc(v==null||Number.isNaN(v)?"":v)+'">';
+  else if(t==="date")input='<input class="input'+bad+'"'+common+' type="date" value="'+esc(v||"")+'">';
+  else if(t==="time")input='<input class="input'+bad+'"'+common+' type="time" value="'+esc(v||"")+'">';
+  else input='<input class="input'+bad+'"'+common+' type="'+(o.type||"text")+'" maxlength="'+(o.max||200)+'" autocomplete="off"'+(o.list?' list="'+o.list+'"':'')+(o.im?' inputmode="'+o.im+'"':'')+(o.ph?' placeholder="'+esc(o.ph)+'"':'')+' value="'+esc(v||"")+'">';
+  let help="";
+  if(t==="date")help='<span class="help" data-rfecha="'+path+'">'+(v?RV.fmtFechaDia(v):"DD/MM/AAAA")+'</span>';
+  else if(t==="time")help='<span class="help" data-rhora="'+path+'">'+(v?RV.fmtHora(v):"")+'</span>';
+  else if(o.help)help='<span class="help">'+esc(o.help)+'</span>';
+  return '<div class="field'+(o.span?" span2":"")+'"><label for="'+id+'">'+esc(label)+'</label>'+input+help+'</div>';
+}
+const rBad=c=>rErrores.some(e=>e.campo===c)?" bad-card":"";
+const rBtnDel=(list,i,etq)=>'<button type="button" class="icon-btn" data-r="del" data-list="'+list+'" data-i="'+i+'" aria-label="Quitar '+esc(etq)+'">'+icon(ICON_X,18)+'</button>';
+function rTabViaje(){
+  let h='<div class="fieldset">'+
+    '<p class="help" style="margin:0">'+(RE.numero?"Reserva <b>"+esc(RV.codigo(RE.numero))+"</b>":"El número de reserva (RS) se asigna automáticamente al guardar.")+
+      (RE.cotizacionId?" · Creada desde la cotización "+esc(D.codigo((S.cotizaciones.find(q=>q.id===RE.cotizacionId)||{}).numero)):"")+'</p>'+
+    '<span class="fs-title">Cliente y titular</span>';
+  if(RE.clienteId){
+    const c=S.clientes.find(x=>x.id===RE.clienteId);
+    h+='<div class="chosen"><div style="min-width:0"><b style="overflow-wrap:anywhere">Cliente: '+esc(c?c.nombre:RE.titular.nombre)+'</b><div class="help">'+(c?esc(D.fmtTel(c.telefono)||"Sin teléfono"):"El cliente ya no existe en el CRM")+'</div></div><button type="button" class="btn btn-sm" data-r="cambiar-cli">Cambiar cliente</button></div>';
+  }else{
+    h+='<div class="field"><label for="rCliBusca">Buscar cliente existente</label><input class="input" id="rCliBusca" type="search" autocomplete="off" placeholder="Nombre o teléfono" value="'+esc(rBusca)+'"></div>'+
+      '<div class="pick-list" id="rCliRes">'+rResultadosCli()+'</div>'+
+      '<p class="help" style="margin:0">Si es un cliente nuevo, escribe sus datos abajo: al guardar queda registrado en Clientes.</p>';
+  }
+  h+='<div class="grid2">'+rf("Titular de la reserva *","titular.nombre","text",{campo:"r_titular",max:120,span:true,help:"Puede ser distinto al cliente (por ejemplo, quien viaja)."})+
+      rf("WhatsApp del titular","titular.telefono","text",{campo:"r_tel",type:"tel",im:"tel",max:20,ph:"300 123 4567"})+
+      rf("Correo del titular","titular.email","text",{campo:"r_email",type:"email",im:"email",max:120})+'</div>'+
+    '<span class="fs-title">Viaje</span><div class="grid2">'+
+      rf("Destino o destinos *","destino","text",{campo:"r_destino",max:200,span:true,ph:"Ej.: Cartagena y Santa Marta"})+
+      rf("Inicio del viaje","fechaInicio","date",{campo:"r_inicio"})+rf("Fin del viaje","fechaFin","date",{campo:"r_fin"})+'</div>'+
+    '<p class="help" style="margin:0">Si dejas las fechas vacías, se calculan con los vuelos, hoteles y actividades.</p>'+
+      rf("Asesor(a) responsable","asesorNombre","text",{max:80})+
+    '<span class="fs-title">Pasajeros</span>'+
+    '<p class="help" style="margin:0">El tipo y número de documento quedan solo en el CRM: <b>no aparecen en el voucher</b>.</p>'+
+    '<div class="rowlist">'+(RE.pasajeros.length?RE.pasajeros.map((p,i)=>'<div class="opt-card'+rBad("pax_"+i)+'"><div class="opt-head"><b>Pasajero '+(i+1)+'</b>'+rBtnDel("pasajeros",i,"pasajero "+(i+1))+'</div>'+
+      '<div class="grid2">'+rf("Nombre completo (como en el documento) *","pasajeros."+i+".nombre","text",{campo:"pax_"+i,max:120,span:true})+
+      rf("Tipo","pasajeros."+i+".tipo","select",{opts:RV.TIPOS_PAX.map(t=>[t.k,t.l+(t.k==="nino"?" (2 a 11 años)":t.k==="infante"?" (menor de 2 años)":"")])})+
+      rf("Fecha de nacimiento","pasajeros."+i+".fechaNacimiento","date")+
+      rf("Tipo de documento","pasajeros."+i+".docTipo","select",{opts:[["","Elige…"]].concat(RV.TIPOS_DOC.map(t=>[t,t]))})+
+      rf("Número de documento","pasajeros."+i+".docNumero","text",{max:30,im:"text"})+'</div></div>').join("")
+      :'<p class="muted'+(rErrores.some(e=>e.campo==="pax_add")?" err":"")+'" data-campo="pax_add" style="margin:0">Aún no hay pasajeros.</p>')+'</div>'+
+    '<div class="actions"><button type="button" class="btn btn-sm" data-r="add-pax" data-tipo="adulto">'+icon(ICON_PLUS,16)+'Adulto</button><button type="button" class="btn btn-sm" data-r="add-pax" data-tipo="nino">'+icon(ICON_PLUS,16)+'Niño</button><button type="button" class="btn btn-sm" data-r="add-pax" data-tipo="infante">'+icon(ICON_PLUS,16)+'Infante</button>'+
+      (RE.titular.nombre&&!RE.pasajeros.some(p=>p.nombre.trim().toLowerCase()===RE.titular.nombre.trim().toLowerCase())?'<button type="button" class="btn btn-sm btn-ghost" data-r="titular-pax">Agregar al titular como pasajero</button>':'')+'</div>';
+  return h+'</div>';
+}
+function rResultadosCli(){
+  const t=rBusca.trim().toLowerCase(),td=t.replace(/\D/g,"");
+  let l=S.clientes.filter(c=>!t||String(c.nombre||"").toLowerCase().includes(t)||(td.length>=3&&String(c.telefono||"").replace(/\D/g,"").includes(td)));
+  l=l.sort((a,b)=>String(b.actualizadoEn||"").localeCompare(String(a.actualizadoEn||""))).slice(0,6);
+  if(!l.length)return '<p class="help" style="margin:10px 12px">'+(S.clientes.length?"No hay clientes con ese nombre o teléfono.":"Aún no hay clientes registrados.")+'</p>';
+  return l.map(c=>'<button type="button" class="pick" data-r="pick-cli" data-id="'+esc(c.id)+'"><span style="min-width:0"><b style="overflow-wrap:anywhere">'+esc(c.nombre)+'</b><br><span class="help">'+esc(D.fmtTel(c.telefono)||"Sin teléfono")+(c.destinos?" · "+esc(c.destinos):"")+'</span></span><span class="pill st-'+esc(c.etapa)+'">'+esc(etapaLabel(c.etapa))+'</span></button>').join("");
+}
+function escalasHTML(vi){
+  const it=RV.itinerario(RE.vuelos[vi]||{}).filter(x=>x.tipo==="escala");
+  return it.length?it.map(x=>'<span class="pill st-cotizado">Escala en '+esc(x.ciudad)+' · '+esc(RV.fmtDuracion(x.min))+'</span>').join(""):'<span class="help">Las escalas se calculan solas cuando un trayecto llega a la ciudad de donde sale el siguiente.</span>';
+}
+function rTabVuelos(){
+  let h='<div class="fieldset"><p class="help" style="margin:0">Agrega una reserva aérea por cada código de reserva. Dentro de cada una, agrega todos los trayectos: ida, regreso o tramos de un viaje multidestino.</p>';
+  h+=RE.vuelos.map((v,vi)=>'<div class="opt-card"><div class="opt-head"><b>Reserva aérea '+(vi+1)+'</b>'+rBtnDel("vuelos",vi,"reserva aérea "+(vi+1))+'</div>'+
+    '<div class="grid3">'+rf("Aerolínea","vuelos."+vi+".aerolinea","text",{max:80,ph:"Ej.: Avianca"})+rf("Código de reserva","vuelos."+vi+".codigoReserva","text",{max:20,ph:"Ej.: XK7P2Q"})+rf("Equipaje incluido","vuelos."+vi+".equipaje","text",{max:200,ph:"Ej.: maleta de 23 kg"})+'</div>'+
+    '<span class="fs-title">Trayectos</span>'+
+    '<div class="rowlist">'+(v.trayectos||[]).map((t,ti)=>'<div class="sub-card'+rBad("tr_"+vi+"_"+ti)+'"><div class="opt-head"><b>Trayecto '+(ti+1)+'</b>'+rBtnDel("vuelos."+vi+".trayectos",ti,"trayecto "+(ti+1))+'</div>'+
+      '<div class="grid3">'+rf("Tipo","vuelos."+vi+".trayectos."+ti+".tipo","select",{opts:RV.TIPOS_TRAYECTO.map(x=>[x.k,x.l])})+rf("Fecha *","vuelos."+vi+".trayectos."+ti+".fecha","date",{campo:"tr_"+vi+"_"+ti})+rf("Número de vuelo","vuelos."+vi+".trayectos."+ti+".vuelo","text",{max:20,ph:"Ej.: AV 9301"})+
+      '</div><div class="grid2">'+
+      rf("Sale de *","vuelos."+vi+".trayectos."+ti+".origen","text",{max:80,ph:"Ej.: Cúcuta (CUC)",list:"dl_aerop"})+rf("Hora de salida","vuelos."+vi+".trayectos."+ti+".salida","time")+
+      rf("Llega a *","vuelos."+vi+".trayectos."+ti+".destino","text",{max:80,ph:"Ej.: Bogotá (BOG)",list:"dl_aerop"})+rf("Hora de llegada","vuelos."+vi+".trayectos."+ti+".llegada","time")+
+      rf("Aerolínea (si es otra)","vuelos."+vi+".trayectos."+ti+".aerolinea","text",{max:80})+
+      '<label class="check" style="align-self:center"><input type="checkbox" data-rk="vuelos.'+vi+'.trayectos.'+ti+'.llegaOtroDia" data-t="bool"'+(t.llegaOtroDia?" checked":"")+'> Llega al día siguiente</label></div></div>').join("")+'</div>'+
+    '<div class="chips" data-escalas="'+vi+'">'+escalasHTML(vi)+'</div>'+
+    '<div class="actions"><button type="button" class="btn btn-sm" data-r="add-tramo" data-vi="'+vi+'">'+icon(ICON_PLUS,16)+'Agregar trayecto</button>'+((v.trayectos||[]).length?'<button type="button" class="btn btn-sm" data-r="add-regreso" data-vi="'+vi+'">'+icon(ICON_PLUS,16)+'Agregar regreso (invertir la ida)</button>':'')+'</div>'+
+    (RE.pasajeros.length?'<span class="fs-title">Número de tiquete de cada pasajero</span><div class="grid2">'+RE.pasajeros.map(p=>
+      '<div class="field"><label for="r_tq_'+vi+'_'+esc(p.id)+'">'+esc(p.nombre||"Pasajero sin nombre")+'</label><input class="input" id="r_tq_'+vi+'_'+esc(p.id)+'" data-rk="vuelos.'+vi+'.tiquetes.'+esc(p.id)+'" data-t="text" maxlength="30" placeholder="Ej.: 134-2100000001" value="'+esc((v.tiquetes||{})[p.id]||"")+'"></div>').join("")+'</div>'
+      :'<p class="help" style="margin:0">Agrega los pasajeros en la pestaña 1 para escribir sus números de tiquete.</p>')+
+    rf("Notas del vuelo (opcional)","vuelos."+vi+".notas","textarea",{max:1500,rows:2})+'</div>').join("");
+  h+='<datalist id="dl_aerop">'+["Cúcuta (CUC)","Bogotá (BOG)","Medellín (MDE)","Cartagena (CTG)","Santa Marta (SMR)","San Andrés (ADZ)","Cali (CLO)","Barranquilla (BAQ)","Pereira (PEI)","Armenia (AXM)","Cancún (CUN)","Punta Cana (PUJ)","Ciudad de Panamá (PTY)","Miami (MIA)","Madrid (MAD)"].map(x=>'<option value="'+esc(x)+'">').join("")+'</datalist>';
+  h+='<div><button type="button" class="btn'+(rErrores.some(e=>e.campo==="vu_add")?" bad":"")+'" data-r="add-vuelo" data-campo="vu_add">'+icon(ICON_PLUS,16)+'Agregar reserva aérea</button></div>';
+  return h+'</div>';
+}
+function rTabHoteles(){
+  let h='<div class="fieldset"><p class="help" style="margin:0">Agrega un hospedaje por cada hotel o ciudad del viaje.</p>';
+  h+=RE.hoteles.map((x,i)=>{const n=RV.nochesHotel(x);return '<div class="opt-card'+rBad("ho_"+i)+'"><div class="opt-head"><b>Hospedaje '+(i+1)+'</b>'+rBtnDel("hoteles",i,"hospedaje "+(i+1))+'</div>'+
+    '<div class="grid2">'+rf("Nombre del hotel *","hoteles."+i+".nombre","text",{campo:"ho_"+i,max:120})+rf("Ciudad","hoteles."+i+".ciudad","text",{max:80})+
+    rf("Dirección","hoteles."+i+".direccion","text",{max:200,span:true})+rf("Teléfono del hotel","hoteles."+i+".telefono","text",{type:"tel",im:"tel",max:30})+rf("Número de confirmación","hoteles."+i+".confirmacion","text",{max:40})+'</div>'+
+    '<div class="grid3">'+rf("Fecha de entrada *","hoteles."+i+".entrada","date")+rf("Fecha de salida *","hoteles."+i+".salida","date")+
+      '<div class="field"><span class="label">Noches</span><div class="input num" style="display:flex;align-items:center" data-noches="'+i+'">'+(n!=null?n:"—")+'</div><span class="help">Se calculan con las fechas.</span></div>'+
+      rf("Check-in desde","hoteles."+i+".checkin","time")+rf("Check-out hasta","hoteles."+i+".checkout","time")+rf("Número de habitaciones","hoteles."+i+".habitaciones","int",{maxN:20})+
+      rf("Adultos","hoteles."+i+".adultos","int")+rf("Niños","hoteles."+i+".ninos","int")+rf("Tipo de habitación","hoteles."+i+".habitacion","text",{max:100,ph:"Ej.: doble vista al mar"})+'</div>'+
+    '<div class="grid2">'+rf("Alimentación","hoteles."+i+".alimentacion","select",{opts:[["","Elige…"]].concat(RV.ALIMENTACION.map(a=>[a,a]))})+rf("Detalle de la alimentación","hoteles."+i+".alimentacionDetalle","text",{max:200,ph:"Ej.: bebidas nacionales incluidas"})+'</div>'+
+    rf("Notas del hospedaje (opcional)","hoteles."+i+".notas","textarea",{max:1500,rows:2})+'</div>';}).join("");
+  h+='<div><button type="button" class="btn" data-r="add-hotel">'+icon(ICON_PLUS,16)+'Agregar hospedaje</button></div>';
+  return h+'</div>';
+}
+function rTabTraslados(){
+  let h='<div class="fieldset"><p class="help" style="margin:0">Traslados del aeropuerto al hotel, entre ciudades, en lancha, etc.</p>';
+  h+=RE.traslados.map((x,i)=>'<div class="opt-card'+rBad("tl_"+i)+'"><div class="opt-head"><b>Traslado '+(i+1)+'</b>'+rBtnDel("traslados",i,"traslado "+(i+1))+'</div>'+
+    '<div class="grid3">'+rf("Tipo de traslado","traslados."+i+".tipo","text",{max:80,list:"dl_trasl",campo:"tl_"+i})+rf("Fecha","traslados."+i+".fecha","date")+rf("Hora","traslados."+i+".hora","time")+'</div>'+
+    '<div class="grid2">'+rf("Desde","traslados."+i+".desde","text",{max:120,ph:"Ej.: Aeropuerto Rafael Núñez"})+rf("Hasta","traslados."+i+".hasta","text",{max:120,ph:"Ej.: Hotel Las Américas"})+'</div>'+
+    '<div class="grid3">'+rf("Empresa","traslados."+i+".proveedor","text",{max:100})+rf("Teléfono","traslados."+i+".telefono","text",{type:"tel",im:"tel",max:30})+rf("Confirmación","traslados."+i+".confirmacion","text",{max:40})+'</div>'+
+    rf("Indicaciones para el cliente","traslados."+i+".indicaciones","textarea",{max:1500,rows:2,ph:"Ej.: el conductor espera en la salida de llegadas con un letrero a nombre del titular."})+'</div>').join("");
+  h+='<datalist id="dl_trasl">'+TIPOS_TRASLADO.map(x=>'<option value="'+esc(x)+'">').join("")+'</datalist>';
+  h+='<div><button type="button" class="btn" data-r="add-traslado">'+icon(ICON_PLUS,16)+'Agregar traslado</button></div>';
+  return h+'</div>';
+}
+function rTabActividades(){
+  let h='<div class="fieldset"><p class="help" style="margin:0">Organiza las actividades por secciones, por ejemplo “Actividades en Cartagena” y luego “Actividades en Santa Marta”.</p>';
+  h+=RE.actividades.map((sec,si)=>'<div class="opt-card"><div class="opt-head"><b>Sección '+(si+1)+'</b>'+rBtnDel("actividades",si,"sección "+(si+1))+'</div>'+
+    rf("Nombre de la sección","actividades."+si+".titulo","text",{max:120,ph:"Ej.: Actividades en Cartagena"})+
+    '<div class="rowlist">'+(sec.items||[]).map((a,ai)=>'<div class="sub-card'+rBad("ac_"+si+"_"+ai)+'"><div class="opt-head"><b>Actividad '+(ai+1)+'</b>'+rBtnDel("actividades."+si+".items",ai,"actividad "+(ai+1))+'</div>'+
+      rf("Nombre de la actividad *","actividades."+si+".items."+ai+".nombre","text",{campo:"ac_"+si+"_"+ai,max:150,ph:"Ej.: Tour Islas del Rosario"})+
+      '<div class="grid3">'+rf("Fecha","actividades."+si+".items."+ai+".fecha","date")+rf("Hora","actividades."+si+".items."+ai+".hora","time")+rf("Duración","actividades."+si+".items."+ai+".duracion","text",{max:40,ph:"Ej.: 8 horas"})+'</div>'+
+      '<div class="grid3">'+rf("Punto de encuentro","actividades."+si+".items."+ai+".puntoEncuentro","text",{max:150})+rf("Operador","actividades."+si+".items."+ai+".proveedor","text",{max:100})+rf("Teléfono del operador","actividades."+si+".items."+ai+".telefono","text",{type:"tel",im:"tel",max:30})+'</div>'+
+      rf("Qué incluye","actividades."+si+".items."+ai+".incluye","textarea",{max:1500,rows:2})+
+      rf("Cómo se toma la actividad","actividades."+si+".items."+ai+".comoSeToma","textarea",{max:3000,rows:4,ph:"Ej.: presentarse a las 7:00 a. m. en el muelle con este voucher y el documento de identidad; pagar el impuesto de muelle en la taquilla; llevar bloqueador y toalla."})+
+      '</div>').join("")+'</div>'+
+    '<div><button type="button" class="btn btn-sm" data-r="add-act" data-si="'+si+'">'+icon(ICON_PLUS,16)+'Agregar actividad a esta sección</button></div></div>').join("");
+  const usadas=new Set(RE.actividades.map(x=>String(x.titulo||"").toLowerCase()));
+  const sug=[...new Set(RE.hoteles.map(x=>String(x.ciudad||"").trim()).filter(Boolean))].map(c=>"Actividades en "+c).filter(t=>!usadas.has(t.toLowerCase()));
+  h+='<div class="actions"><button type="button" class="btn" data-r="add-seccion">'+icon(ICON_PLUS,16)+'Agregar sección</button>'+sug.map(t=>'<button type="button" class="chip-toggle" data-r="add-seccion" data-titulo="'+esc(t)+'">'+esc(t)+'</button>').join("")+'</div>';
+  return h+'</div>';
+}
+function rTabIncluye(){
+  const presentes=new Set(RE.incluye.map(x=>String(x.descripcion||"").trim().toLowerCase()));
+  const sug=RV.SUG_INCLUYE.filter(x=>!presentes.has(x.toLowerCase()));
+  return '<div class="fieldset"><span class="fs-title">Qué incluye el viaje</span>'+
+    '<div class="rowlist">'+(RE.incluye.length?RE.incluye.map((x,i)=>'<div class="ritem serv">'+
+      '<input class="input" aria-label="Servicio '+(i+1)+'" data-rk="incluye.'+i+'.descripcion" data-t="text" maxlength="300" placeholder="Descripción" value="'+esc(x.descripcion||"")+'">'+
+      '<button type="button" class="toggle-inc" data-r="tog-inc" data-i="'+i+'" aria-pressed="'+(x.incluido!==false)+'">'+(x.incluido!==false?"Incluido":"No incluido")+'</button>'+rBtnDel("incluye",i,"servicio "+(i+1))+'</div>').join(""):'<p class="muted" style="margin:0">Aún no hay servicios.</p>')+'</div>'+
+    '<div><button type="button" class="btn btn-sm" data-r="add-inc">'+icon(ICON_PLUS,16)+'Agregar servicio</button></div>'+
+    (sug.length?'<div class="field"><span class="label">Atajos: toca para agregar como incluido</span><div class="chips">'+sug.map(x=>'<button type="button" class="chip-toggle" data-r="sug-inc" data-v="'+esc(x)+'">'+esc(x)+'</button>').join("")+'</div></div>':'')+
+    '<span class="fs-title">Asistencia médica</span><div class="grid3">'+
+      rf("Compañía","asistencia.compania","text",{max:100})+rf("Número de voucher o póliza","asistencia.voucher","text",{max:60})+rf("Teléfono de asistencia","asistencia.telefono","text",{type:"tel",max:40})+
+      rf("Vigente desde","asistencia.desde","date",{campo:"as_desde"})+rf("Vigente hasta","asistencia.hasta","date",{campo:"as_hasta"})+rf("Cobertura","asistencia.cobertura","text",{max:120,ph:"Ej.: hasta USD 30.000"})+'</div>'+
+    '<span class="fs-title">Recomendaciones para el viajero</span>'+
+    rf("Una recomendación por línea","recomendaciones","textarea",{max:4000,rows:6})+
+    '<div><button type="button" class="btn btn-sm btn-ghost" data-r="reset-rec">Restaurar recomendaciones sugeridas</button></div>'+
+    '<span class="fs-title">Observaciones</span>'+rf("Observaciones para el cliente (opcional)","notas","textarea",{max:4000,rows:3})+
+  '</div>';
+}
+function rPieHTML(){
+  const f=RV.fechasViaje(RE),n=RE.pasajeros.length;
+  return '<span>'+(n?n+(n===1?" pasajero":" pasajeros"):"Sin pasajeros")+'</span><b>'+esc(f.inicio?RV.fmtFecha(f.inicio)+(f.fin&&f.fin!==f.inicio?" – "+RV.fmtFecha(f.fin):""):"Fechas por definir")+'</b>';
+}
+function pintarEditorRes(arriba){
+  const prevSc=document.querySelector("#overlayRoot .sheet.reditor .ed-scroll"),top=prevSc&&!arriba?prevSc.scrollTop:0;
+  const err=new Set(rErrores.map(e=>e.tab));
+  const cuerpo={viaje:rTabViaje,vuelos:rTabVuelos,hoteles:rTabHoteles,traslados:rTabTraslados,actividades:rTabActividades,incluye:rTabIncluye}[rTab]();
+  const s=openOverlay(
+    '<div class="sheet-head"><h2>'+(RE.id?"Editar "+esc(RV.codigo(RE.numero)):"Nueva reserva")+'</h2><button type="button" class="btn btn-ghost btn-sm" data-r="close">Cerrar</button></div>'+
+    '<div class="ed-tabs" role="tablist">'+TABS_RES.map(t=>'<button type="button" class="ed-tab" role="tab" data-r="tab" data-tab="'+t.k+'" aria-selected="'+(t.k===rTab)+'">'+t.l+(err.has(t.k)?'<span class="dot" aria-label="con errores"></span>':'')+'</button>').join("")+'</div>'+
+    '<div class="ed-scroll"><form class="sheet-body" id="rForm" novalidate>'+
+      (rErrores.length?'<div class="errbox" role="alert"><b>Revisa estos datos:</b><ul>'+rErrores.map(e=>'<li><button type="button" data-r="goto" data-tab="'+e.tab+'" data-campo="'+esc(e.campo||"")+'">'+esc(e.msg)+'</button></li>').join("")+'</ul></div>':'')+
+      cuerpo+
+    '</form></div>'+
+    '<div class="ed-foot"><div class="ed-total" id="rPie">'+rPieHTML()+'</div><div class="actions">'+
+      '<button type="button" class="btn" data-r="preview">Vista previa</button>'+
+      '<button type="button" class="btn" data-r="save"'+(rGuardando?" disabled":"")+'>'+(rGuardando?"Guardando…":"Guardar")+'</button>'+
+      '<button type="button" class="btn btn-gold" data-r="save-voucher"'+(rGuardando?" disabled":"")+'>Guardar y ver voucher</button></div></div>',
+    "wide editor reditor","reditor",{noBackdrop:true});
+  const sc=s.querySelector(".ed-scroll");if(sc)sc.scrollTop=top;
+  if(!s.dataset.bound){
+    s.dataset.bound="1";
+    s.addEventListener("input",rInput);s.addEventListener("change",rInput);s.addEventListener("click",rClick);
+    s.addEventListener("submit",e=>e.preventDefault());
+  }
+}
+function rInput(ev){
+  const el=ev.target;
+  if(el.id==="rCliBusca"){if(ev.type!=="input")return;rBusca=el.value;const r=document.getElementById("rCliRes");if(r)r.innerHTML=rResultadosCli();return;}
+  const path=el.dataset&&el.dataset.rk;if(!path)return;
+  const t=el.dataset.t;let v;
+  if(t==="int")v=el.value===""?null:Number(el.value);
+  else if(t==="bool")v=el.checked;
+  else v=el.value;
+  setP(RE,path,v);
+  el.classList.remove("bad");
+  if(t==="date"){const h=document.querySelector('#overlayRoot [data-rfecha="'+path+'"]');if(h)h.textContent=v?RV.fmtFechaDia(v):"DD/MM/AAAA";}
+  if(t==="time"){const h=document.querySelector('#overlayRoot [data-rhora="'+path+'"]');if(h)h.textContent=v?RV.fmtHora(v):"";}
+  const m=path.match(/^hoteles\.(\d+)\.(entrada|salida)$/);
+  if(m){const n=RV.nochesHotel(RE.hoteles[+m[1]]);const d=document.querySelector('#overlayRoot [data-noches="'+m[1]+'"]');if(d)d.textContent=n!=null?n:"—";}
+  const mv=path.match(/^vuelos\.(\d+)\.trayectos\./);
+  if(mv){const d=document.querySelector('#overlayRoot [data-escalas="'+mv[1]+'"]');if(d)d.innerHTML=escalasHTML(+mv[1]);}
+  const p=document.getElementById("rPie");if(p)p.innerHTML=rPieHTML();
+}
+async function rClick(ev){
+  const b=ev.target.closest("[data-r]");if(!b)return;
+  const a=b.dataset.r;
+  if(a==="tab"){rTab=b.dataset.tab;pintarEditorRes(true);return;}
+  if(a==="close"){
+    if(JSON.stringify(RE)!==rBase&&!(await confirmar("¿Salir sin guardar?","Los cambios que no guardaste se perderán.","Salir sin guardar",true)))return;
+    closeOverlay("reditor");RE=null;return;
+  }
+  if(a==="goto"){rTab=b.dataset.tab;pintarEditorRes(true);const c=b.dataset.campo;if(c){const el=document.querySelector('#overlayRoot .reditor [data-campo="'+c+'"]');if(el){el.scrollIntoView({block:"center"});if(el.focus)el.focus();}}return;}
+  if(a==="pick-cli"){const c=S.clientes.find(x=>x.id===b.dataset.id);if(c)vincularClienteRes(c,true);rErrores=rErrores.filter(e=>e.campo!=="r_titular"&&e.campo!=="r_tel");pintarEditorRes();return;}
+  if(a==="cambiar-cli"){RE.clienteId=null;rBusca="";pintarEditorRes();return;}
+  if(a==="add-pax"){RE.pasajeros.push(RV.pasajeroVacio(b.dataset.tipo,""));rErrores=rErrores.filter(e=>e.campo!=="pax_add");pintarEditorRes();const ins=document.querySelectorAll('#overlayRoot [data-rk$=".nombre"][data-rk^="pasajeros."]');if(ins.length){ins[ins.length-1].focus();ins[ins.length-1].scrollIntoView({block:"center"});}return;}
+  if(a==="titular-pax"){RE.pasajeros.unshift(RV.pasajeroVacio("adulto",RE.titular.nombre.trim()));pintarEditorRes();return;}
+  if(a==="add-vuelo"){const v=RV.vueloVacio();if(!RE.vuelos.length){const f=RV.fechasViaje(RE);v.trayectos[0].fecha=f.inicio||"";}RE.vuelos.push(v);rErrores=rErrores.filter(e=>e.campo!=="vu_add");pintarEditorRes();return;}
+  if(a==="add-tramo"){const v=RE.vuelos[+b.dataset.vi];const ult=v.trayectos[v.trayectos.length-1];const t=RV.trayectoVacio(ult?ult.tipo:"ida");if(ult){t.origen=ult.destino||"";t.fecha=ult.fecha||"";}v.trayectos.push(t);pintarEditorRes();return;}
+  if(a==="add-regreso"){
+    const v=RE.vuelos[+b.dataset.vi],ida=v.trayectos.filter(t=>t.tipo!=="regreso");
+    const f=RV.fechasViaje(RE);
+    (ida.length?ida:v.trayectos).slice().reverse().forEach(t=>v.trayectos.push(Object.assign(RV.trayectoVacio("regreso"),{origen:t.destino||"",destino:t.origen||"",fecha:RE.fechaFin||f.fin||"",aerolinea:t.aerolinea||""})));
+    pintarEditorRes();toast("Se agregó el regreso. Completa fechas, vuelos y horas.");return;
+  }
+  if(a==="add-hotel"){
+    const ult=RE.hoteles[RE.hoteles.length-1],c=RV.conteoPasajeros(RE),f=RV.fechasViaje(RE);
+    RE.hoteles.push(Object.assign(RV.hotelVacio(),{entrada:ult?ult.salida||"":f.inicio||"",salida:ult?"":f.fin||"",adultos:c.adulto||null,ninos:c.nino||null,ciudad:ult?"":RE.destino||""}));
+    pintarEditorRes();return;
+  }
+  if(a==="add-traslado"){RE.traslados.push(RV.trasladoVacio());pintarEditorRes();return;}
+  if(a==="add-seccion"){RE.actividades.push(RV.seccionActividadesVacia(b.dataset.titulo||""));pintarEditorRes();return;}
+  if(a==="add-act"){RE.actividades[+b.dataset.si].items.push(RV.actividadVacia());pintarEditorRes();return;}
+  if(a==="add-inc"){RE.incluye.push({descripcion:"",incluido:true});pintarEditorRes();const ins=document.querySelectorAll('#overlayRoot [data-rk^="incluye."]');if(ins.length)ins[ins.length-1].focus();return;}
+  if(a==="sug-inc"){RE.incluye.push({descripcion:b.dataset.v,incluido:true});pintarEditorRes();return;}
+  if(a==="tog-inc"){const x=RE.incluye[+b.dataset.i];x.incluido=x.incluido===false;b.setAttribute("aria-pressed",String(x.incluido));b.textContent=x.incluido?"Incluido":"No incluido";return;}
+  if(a==="reset-rec"){RE.recomendaciones=RV.RECOMENDACIONES;pintarEditorRes();return;}
+  if(a==="del"){
+    const l=getP(RE,b.dataset.list),i=+b.dataset.i,item=l[i];
+    if(tieneDatos(item)&&!(await confirmar("¿Quitar este elemento?","Se borrarán los datos que escribiste en él.","Quitar",true)))return;
+    if(b.dataset.list==="pasajeros"&&item)RE.vuelos.forEach(v=>{if(v.tiquetes)delete v.tiquetes[item.id];});
+    l.splice(i,1);rErrores=[];pintarEditorRes();return;
+  }
+  if(a==="preview"){abrirVoucher(clone(RE),{guardada:false});return;}
+  if(a==="save"){await guardarRes("guardar");return;}
+  if(a==="save-voucher"){await guardarRes("voucher");return;}
+}
+function tieneDatos(o){ // ¿el elemento tiene algo escrito por la persona? (se ignoran valores por defecto)
+  if(o==null)return false;if(typeof o==="string")return o.trim()!=="";if(typeof o!=="object")return false;
+  return Object.keys(o).some(k=>["id","tipo","checkin","checkout","habitaciones","incluido","adultos","ninos","llegaOtroDia"].indexOf(k)<0&&tieneDatos(o[k]));
+}
+async function guardarRes(modo){
+  if(rGuardando)return;
+  const chk=RV.validar(RE,modo==="voucher"?"voucher":"guardar");
+  const errs=chk.errores.slice();
+  if(!RE.clienteId&&String(RE.titular.telefono||"").replace(/\D/g,"").length<7)errs.unshift({tab:"viaje",campo:"r_tel",msg:"Elige un cliente existente o escribe el WhatsApp del titular para registrarlo como cliente nuevo."});
+  if(errs.length){rErrores=errs;rTab=errs[0].tab;pintarEditorRes(true);toast("Revisa los datos marcados");return;}
+  rErrores=[];
+  if(!RE.clienteId){
+    const dup=await api.buscarDuplicado(RE.titular.telefono,RE.titular.email);
+    if(dup){
+      if(!dup.visible){rErrores=[{tab:"viaje",campo:"r_tel",msg:"Ya existe un cliente con ese teléfono o correo ("+dup.nombre+"), asignado a "+dup.asesor+". Pide al administrador que te lo asigne."}];rTab="viaje";pintarEditorRes(true);return;}
+      const ans=await confirmar("Este cliente ya existe",dup.nombre+" ya está registrado con ese teléfono o correo.\n¿Quieres vincular la reserva a ese cliente para no duplicarlo?","Usar cliente existente",false,"Es otra persona");
+      if(ans===false)return;
+      if(ans===true)RE.clienteId=dup.id;
+    }
+  }
+  rGuardando=true;pintarEditorRes();
+  const fin=ok=>{rGuardando=false;if(hayCapa("reditor"))pintarEditorRes();return ok;};
+  const ahora=new Date().toISOString();
+  if(!RE.clienteId){
+    const row=await guardar(()=>api.crearCliente({nombre:RE.titular.nombre.trim(),telefono:RE.titular.telefono.trim(),email:(RE.titular.email||"").trim(),origen:"Otro",
+      destinos:RE.destino||"",fechaViaje:RV.fechasViaje(RE).inicio||null,etapa:"ganado",cerradoEn:ahora,asesorId:S.meId}));
+    if(!row)return fin(false);
+    await api.agregarHistorial(row.id,"Registro","Cliente registrado desde una reserva.");
+    RE.clienteId=row.id;
+  }
+  const nuevo=!RE.id;
+  if(nuevo)RE.historialEstados=[{estado:RE.estado||"por_confirmar",fecha:ahora,autor:S.meId}];
+  const saved=await guardar(()=>api.guardarReserva(RE,RE.id));
+  if(!saved)return fin(false);
+  Object.assign(RE,{id:saved.id,numero:saved.numero,actualizadoEn:saved.actualizadoEn});
+  rBase=JSON.stringify(RE);
+  const cl=S.clientes.find(c=>c.id===RE.clienteId);
+  if(nuevo&&cl){
+    await api.agregarHistorial(cl.id,"Reserva","Reserva "+RV.codigo(saved.numero)+" creada"+(saved.destino?" para "+saved.destino:"")+".");
+    if(cl.etapa!=="ganado"){await api.agregarHistorial(cl.id,"Etapa","Cambió de “"+etapaLabel(cl.etapa)+"” a “"+etapaLabel("ganado")+"”.");await guardar(()=>api.actualizarCliente(cl.id,{etapa:"ganado",cerradoEn:ahora}));}
+  }
+  fin(true);
+  if(modo==="voucher"){closeOverlay("reditor");RE=null;abrirReserva(saved.id);abrirVoucher(saved,{guardada:true});}
+  else toast((nuevo?"Reserva creada: ":"Reserva guardada: ")+RV.codigo(saved.numero));
+}
+
 /* ---------- Datos de prueba (solo administrador) ---------- */
 async function cargarDemo(){
   if(!S.isAdmin){toast("Solo el administrador puede cargar datos de prueba.");return;}
@@ -1420,8 +1982,10 @@ async function borrarDemo(){
   const demos=S.clientes.filter(c=>c.ejemplo);
   const ids=new Set(demos.map(c=>c.id));
   const dq=S.cotizaciones.filter(q=>q.ejemplo||ids.has(q.clienteId));
-  if(!demos.length&&!dq.length)return;
-  if(!(await confirmar("¿Eliminar datos de prueba?","Se borrarán "+demos.length+" clientes marcados como PRUEBA"+(dq.length?" y "+dq.length+" cotizaciones asociadas a ellos":"")+". Tus clientes reales no se tocan.","Eliminar",true)))return;
+  const dr=S.reservas.filter(r=>r.ejemplo||ids.has(r.clienteId));
+  if(!demos.length&&!dq.length&&!dr.length)return;
+  if(!(await confirmar("¿Eliminar datos de prueba?","Se borrarán "+demos.length+" clientes marcados como PRUEBA"+(dq.length?", "+dq.length+" cotizaciones":"")+(dr.length?" y "+dr.length+" reservas":"")+" asociadas a ellos. Tus clientes reales no se tocan.","Eliminar",true)))return;
+  for(const r of dr){if(!(await guardar(()=>api.borrarReserva(r.id))))return;}
   for(const q of dq){if(!(await guardar(()=>api.borrarCotizacion(q.id))))return;}
   for(const c of demos){if(!(await guardar(()=>api.borrarCliente(c.id))))return;}
   toast("Datos de prueba eliminados");
@@ -1439,7 +2003,7 @@ async function exportarJSON(){
   try{hist=await todas("historial","fecha");}catch(e){toast(explicarError(e));return;}
   const porCliente={};hist.forEach(h=>{(porCliente[h.cliente_id]=porCliente[h.cliente_id]||[]).push({id:h.id,fecha:h.fecha,tipo:h.tipo,texto:h.texto,autor:h.autor});});
   const data={sistema:"Diamond Travel CRM",version:3,formato:"web",exportadoEn:new Date().toISOString(),exportadoPor:(S.perfil||{}).email||"",
-    clientes:S.clientes.map(c=>Object.assign({},c,{historial:porCliente[c.id]||[]})),cotizaciones:S.cotizaciones.map(q=>Object.assign({},q)),plantillas:S.plantillas.map(p=>Object.assign({},p)),solicitudes:S.solicitudes.map(x=>Object.assign({},x))};
+    clientes:S.clientes.map(c=>Object.assign({},c,{historial:porCliente[c.id]||[]})),cotizaciones:S.cotizaciones.map(q=>Object.assign({},q)),plantillas:S.plantillas.map(p=>Object.assign({},p)),solicitudes:S.solicitudes.map(x=>Object.assign({},x)),reservas:S.reservas.map(x=>Object.assign({},x))};
   descargar("diamond-travel-respaldo-"+sello()+".json",JSON.stringify(data,null,2));
 }
 const celdaCSV=v=>{v=v==null?"":String(v);return /[";\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
@@ -1522,9 +2086,20 @@ function importar(input){
       const r=await S.sb.from("plantillas").upsert(ps.map(p=>({id:p.id,nombre:p.nombre,datos:p.datos||{}})),{onConflict:"id"});
       if(r.error)console.error(r.error);
     }
+    // Reservas (se respeta su número)
+    const rs=(Array.isArray(data.reservas)?data.reservas:[]).filter(r=>r&&esUUID(r.id)&&r.titular&&typeof r.titular==="object");
+    if(rs.length&&!S.faltaReservas){
+      const rfilas=rs.map(r=>Object.assign(aFilaRes(r),{id:r.id,numero:Number.isInteger(r.numero)?r.numero:undefined,cliente_id:r.clienteId&&mapa[r.clienteId]?mapa[r.clienteId]:(esUUID(r.clienteId)?r.clienteId:null),
+        cotizacion_id:esUUID(r.cotizacionId)?r.cotizacionId:null,asesor_id:asesorValido(r.asesorId),creado_en:r.creadoEn||new Date().toISOString()}));
+      for(let i=0;i<rfilas.length;i+=200){
+        const r=await S.sb.from("reservas").upsert(rfilas.slice(i,i+200),{onConflict:"id"});
+        if(r.error){msg.innerHTML='<p class="err">Se detuvo al restaurar reservas: '+esc(explicarError(r.error))+'</p>';return;}
+      }
+      try{await S.sb.rpc("ajustar_consecutivo_reservas");}catch(_){}
+    }
     try{await S.sb.rpc("ajustar_consecutivo");}catch(_){}
     await recargarTodo();
-    msg.innerHTML='<p class="ok-msg">Listo: '+cs.length+' clientes y '+qs.length+' cotizaciones restaurados. Compara estos números con los del respaldo.</p>';
+    msg.innerHTML='<p class="ok-msg">Listo: '+cs.length+' clientes, '+qs.length+' cotizaciones'+(rs.length?' y '+rs.length+' reservas':'')+' restaurados. Compara estos números con los del respaldo.</p>';
     toast("Respaldo restaurado");input.value="";
   };
   rd.readAsText(f);
@@ -1571,6 +2146,22 @@ function ponerLocal(lista,obj){
   refrescarTodo();
 }
 function quitarLocal(lista,id){S[lista]=S[lista].filter(x=>x.id!==id);refrescarTodo();}
+const DATOS_RES=["titular","asesorNombre","fechaInicio","fechaFin","pasajeros","vuelos","hoteles","traslados","actividades","incluye","asistencia","recomendaciones","notas","historialEstados"];
+function aFilaRes(r){
+  const d={};DATOS_RES.forEach(k=>{if(r[k]!==undefined)d[k]=r[k];});
+  const f=RV.fechasViaje(r);
+  const fila={estado:r.estado||"por_confirmar",cliente_id:r.clienteId||null,cotizacion_id:r.cotizacionId||null,destino:String(r.destino||"").slice(0,300),
+    fecha_inicio:f.inicio||null,fecha_fin:f.fin||null,datos:d,ejemplo:!!r.ejemplo};
+  if(r.voucherEnviadoEn!==undefined)fila.voucher_enviado_en=r.voucherEnviadoEn||null;
+  return fila;
+}
+function deFilaRes(row){
+  const base=RV.reservaVacia();
+  const r=Object.assign(base,row.datos||{},{id:row.id,numero:Number(row.numero),estado:row.estado,clienteId:row.cliente_id,cotizacionId:row.cotizacion_id,asesorId:row.asesor_id,
+    destino:row.destino||"",voucherEnviadoEn:row.voucher_enviado_en||null,ejemplo:!!row.ejemplo,creadoPor:row.creado_por,creadoEn:row.creado_en,actualizadoEn:row.actualizado_en});
+  if(!r.historialEstados)r.historialEstados=[];
+  return r;
+}
 const sinPermiso={code:"42501",message:"permission denied"};
 const api={
   async crearCliente(o){const r=await S.sb.from("clientes").insert(aFilaCliente(o)).select().single();if(r.error)return r;const c=deFilaCliente(r.data);ponerLocal("clientes",c);return {data:c};},
@@ -1611,6 +2202,19 @@ const api={
     if(r.error){console.error(r.error);return null;}
     return (r.data&&r.data[0])||null;
   },
+  async guardarReserva(r,id){
+    const fila=aFilaRes(r);delete fila.voucher_enviado_en;
+    const q=id?await S.sb.from("reservas").update(fila).eq("id",id).select():await S.sb.from("reservas").insert(Object.assign(fila,{asesor_id:S.meId})).select();
+    if(q.error)return q;if(!q.data.length)return {error:sinPermiso};
+    const x=deFilaRes(q.data[0]);ponerLocal("reservas",x);return {data:x};
+  },
+  async actualizarReserva(id,o){
+    const f={};if(o.estado)f.estado=o.estado;if(o.voucherEnviadoEn!==undefined)f.voucher_enviado_en=o.voucherEnviadoEn;
+    if(o.historialEstados){const r=S.reservas.find(x=>x.id===id);if(r)f.datos=Object.assign(aFilaRes(r).datos,{historialEstados:o.historialEstados});}
+    const q=await S.sb.from("reservas").update(f).eq("id",id).select();if(q.error)return q;if(!q.data.length)return {error:sinPermiso};
+    const x=deFilaRes(q.data[0]);ponerLocal("reservas",x);return {data:x};
+  },
+  async borrarReserva(id){const q=await S.sb.from("reservas").delete().eq("id",id).select("id");if(q.error)return q;if(!q.data.length)return {error:sinPermiso};quitarLocal("reservas",id);return {data:true};},
   async actualizarPerfil(id,patch){const r=await S.sb.from("perfiles").update(patch).eq("id",id).select();if(r.error)return r;if(!r.data.length)return {error:sinPermiso};return {data:r.data[0]};}
 };
 
@@ -1633,6 +2237,10 @@ const tablaFalta=e=>e&&(e.code==="42P01"||e.code==="PGRST205"||/does not exist|C
 async function cargarExtras(){ // tablas de la actualización 2: si aún no existen, el resto del CRM sigue funcionando
   try{S.plantillas=(await todas("plantillas","actualizado_en")).map(deFilaPlantilla);S.segs=(await todas("seguimientos","fecha")).map(deFilaSeg);S.faltaActualizacion=false;}
   catch(e){if(tablaFalta(e)){S.faltaActualizacion=true;S.plantillas=[];S.segs=[];}else console.error(e);}
+  // tabla de la actualización 4 (reservas)
+  try{S.reservas=(await todas("reservas","numero")).map(deFilaRes);S.faltaReservas=false;}
+  catch(e){if(tablaFalta(e)){S.faltaReservas=true;S.reservas=[];}else console.error(e);}
+  S.resReady=true;
   // tabla de la actualización 3 (formulario "Cotiza tu viaje")
   try{S.solicitudes=(await todas("solicitudes","creado_en")).map(deFilaSol);S.faltaFormulario=false;}
   catch(e){if(tablaFalta(e)){S.faltaFormulario=true;S.solicitudes=[];}else console.error(e);}
@@ -1678,6 +2286,7 @@ function refrescarTodo(){
   renderConFoco();
   if(detalleId)refrescarCapa("detalle",pintarDetalle);
   if(cotId)refrescarCapa("cot",pintarCotizacion);
+  if(resId)refrescarCapa("res",pintarReserva);
   const cr=document.getElementById("cliRes");if(cr)cr.innerHTML=resultadosCliHTML();
 }
 let tRec={};
@@ -1690,6 +2299,7 @@ function suscribir(){
     .on("postgres_changes",{event:"*",schema:"public",table:"historial"},p=>{const id=(p.new&&p.new.cliente_id)||(p.old&&p.old.cliente_id);if(id&&S.hist[id])luego("h"+id,()=>cargarHistorial(id));})
     .on("postgres_changes",{event:"*",schema:"public",table:"plantillas"},()=>luego("pl",async()=>{await cargarExtras();refrescarTodo();}))
     .on("postgres_changes",{event:"*",schema:"public",table:"seguimientos"},()=>luego("sg",async()=>{await cargarExtras();refrescarTodo();}))
+    .on("postgres_changes",{event:"*",schema:"public",table:"reservas"},()=>luego("rs",async()=>{await cargarExtras();refrescarTodo();}))
     .on("postgres_changes",{event:"*",schema:"public",table:"solicitudes"},p=>luego("so",async()=>{
       await cargarExtras();refrescarTodo();
       if(p&&p.eventType==="INSERT"){const n=((p.new||{}).datos||{}).nombre;toast("Nueva solicitud del formulario"+(n?": "+n:""));}
@@ -1816,7 +2426,7 @@ async function entrar(session){
 async function cerrarSesion(){
   try{if(S.canal)S.sb.removeChannel(S.canal);}catch(_){}
   await S.sb.auth.signOut();
-  Object.assign(S,{session:null,perfil:null,equipo:[],config:{},hist:{},clientes:[],cotizaciones:[],plantillas:[],segs:[],solicitudes:[],ready:false,cotReady:false,meId:null,isAdmin:false,loadError:null});
+  Object.assign(S,{session:null,perfil:null,equipo:[],config:{},hist:{},clientes:[],cotizaciones:[],plantillas:[],segs:[],solicitudes:[],reservas:[],resReady:false,ready:false,cotReady:false,meId:null,isAdmin:false,loadError:null});
   mostrarAuth("login");
 }
 function abrirMiCuenta(){

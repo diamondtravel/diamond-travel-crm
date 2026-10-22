@@ -38,8 +38,11 @@ Diseño azul marino, dorado y blanco · interfaz en español · moneda COP · fe
   queda guardado solo en el CRM y aparece de primero en Seguimientos de hoy. Solo puede llamar a la función
   `registrar_solicitud` (valida datos, evita duplicados, limita envíos y guarda la autorización de datos, Ley 1581 de 2012).
   El administrador lo configura en Equipo (enlace, asignación y mensaje de bienvenida para WhatsApp Business).
+- **Reservas y voucher de viaje** (`web/js/voucher.js`): consecutivo RS, se crean desde una cotización aceptada;
+  pasajeros (documentos solo en el CRM), reservas aéreas con trayectos ilimitados y escalas calculadas, varios hoteles,
+  traslados y actividades por secciones. El voucher en PDF incluye el contacto 305 205 1183 y emergencias 24/7 312 382 4183.
 - Actualizaciones de la base de datos (cada una se ejecuta una vez, en orden, después de `schema.sql`):
-  `supabase/02-seguimientos-y-plantillas.sql` y `supabase/03-formulario-cotiza.sql`.
+  `supabase/02-seguimientos-y-plantillas.sql`, `supabase/03-formulario-cotiza.sql` y `supabase/04-reservas.sql`.
 - Pruebas de extremo a extremo con Supabase simulado y datos ficticios: `web-pruebas/`.
 
 ## Estructura

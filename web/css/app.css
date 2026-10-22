@@ -324,3 +324,13 @@ textarea.input{min-height:84px;resize:vertical}
 .seg-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
 .seg-msg{margin:0;font-size:13.5px;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .kv dd{white-space:pre-line}
+/* --- Reservas y voucher --- */
+.res-por_confirmar{background:var(--warn-soft);color:var(--warn)}
+.res-confirmada{background:var(--ok-soft);color:var(--ok)}
+.res-en_viaje{background:var(--info-soft);color:var(--info)}
+.res-finalizada{background:var(--surface-2);color:var(--muted)}
+.res-cancelada{background:var(--bad-soft);color:var(--bad)}
+.sub-card{border:1px dashed var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--bg)}
+.opt-card.bad-card,.sub-card.bad-card{border-color:var(--bad);border-style:solid}
+.btn.bad{border-color:var(--bad);color:var(--bad)}
+p.err{color:var(--bad)}
