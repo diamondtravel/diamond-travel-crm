@@ -299,3 +299,28 @@ textarea.input{min-height:84px;resize:vertical}
 .est-pend{background:var(--warn-soft);color:var(--warn)}
 .steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:14px}
 @media (max-width:560px){.eq-row{grid-template-columns:1fr}.eq-actions{justify-content:flex-start}}
+
+/* --- Editor de cotización: encabezado, pestañas y pie fijos; solo el contenido se desplaza --- */
+.sheet.editor{display:flex;flex-direction:column;overflow:hidden;height:92vh;height:92dvh}
+.sheet.editor .sheet-head{position:static;flex:none}
+.sheet.editor .sheet-head .actions{flex-wrap:nowrap}
+.ed-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.sheet.editor .ed-foot{position:static;flex:none;margin-top:0}
+.ed-tabs{position:static;flex:none;display:flex;gap:8px;overflow-x:auto;padding:10px 14px;background:var(--surface);border-bottom:1px solid var(--line);scrollbar-width:none}
+.ed-tabs::-webkit-scrollbar{display:none}
+.ed-tab{-webkit-appearance:none;appearance:none;flex:none;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);border-radius:999px;padding:8px 16px;min-height:40px;font-weight:600;font-size:14px;cursor:pointer;white-space:nowrap;position:relative}
+.ed-tab[aria-selected="true"]{background:var(--gold);border-color:var(--gold);color:#1A1406}
+.ed-tab .dot{top:4px;right:6px}
+@media (max-width:640px){.sheet.editor .sheet-head h2{font-size:15px}.sheet.editor .sheet-head .btn{padding:6px 10px;font-size:13px}}
+/* --- Opciones de precio, plantillas y seguimientos --- */
+.opt-card{border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:12px;background:var(--surface)}
+.opt-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.calc-stack{display:flex;flex-direction:column;gap:10px}
+.tpl-box{display:flex;flex-direction:column;gap:6px;background:var(--gold-soft);border-radius:10px;padding:12px 14px}
+.tpl-row{display:flex;gap:8px;flex-wrap:wrap}
+.tpl-row select{flex:1 1 220px;width:auto}
+.seg-list{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+.seg-item{border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.seg-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.seg-msg{margin:0;font-size:13.5px;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.kv dd{white-space:pre-line}

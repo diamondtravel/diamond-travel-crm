@@ -71,38 +71,54 @@ function enteroONulo(v) {
 }
 
 /* ---------- Cálculos ---------- */
+/* Opciones de precio: una cotización puede ofrecer varias (p. ej. solo desayuno / todo incluido).
+   Las cotizaciones antiguas, con precios sueltos, se leen como una sola opción. */
+function opcionesDe(val) {
+  val = val || {};
+  if (Array.isArray(val.opciones) && val.opciones.length) return val.opciones;
+  return [{ nombre: "", detalle: "", precioAdulto: val.precioAdulto, precioNino: val.precioNino, precioInfante: val.precioInfante }];
+}
 function calcular(q) {
   const v = (q && q.viaje) || {}, val = (q && q.valores) || {};
-  const cats = [
-    { k: "adultos", l: "Adultos", lu: "Adulto", cant: enteroONulo(v.adultos) || 0, unit: val.precioAdulto },
-    { k: "ninos", l: "Niños", lu: "Niño", cant: enteroONulo(v.ninos) || 0, unit: val.precioNino },
-    { k: "infantes", l: "Infantes", lu: "Infante", cant: enteroONulo(v.infantes) || 0, unit: val.precioInfante }
-  ];
-  const faltantes = [];
-  const lineas = [];
-  let subtotalPasajeros = 0;
-  cats.forEach(c => {
-    if (!(c.cant > 0)) return;
-    const unitOk = esNum(c.unit) && c.unit >= 0;
-    if (!unitOk) faltantes.push(c.k);
-    const sub = unitOk ? c.cant * c.unit : null;
-    if (unitOk) subtotalPasajeros += sub;
-    lineas.push({ k: c.k, concepto: c.l, cant: c.cant, unit: unitOk ? c.unit : null, subtotal: sub });
-  });
+  const cant = { adultos: enteroONulo(v.adultos) || 0, ninos: enteroONulo(v.ninos) || 0, infantes: enteroONulo(v.infantes) || 0 };
   const cargos = (val.cargos || []).filter(x => x && (s(x.concepto) || esNum(x.valor)));
   const descuentos = (val.descuentos || []).filter(x => x && (s(x.concepto) || esNum(x.valor)));
   const totalCargos = cargos.reduce((a, x) => a + (esNum(x.valor) ? x.valor : 0), 0);
   const totalDescuentos = descuentos.reduce((a, x) => a + (esNum(x.valor) ? x.valor : 0), 0);
-  const pax = cats.reduce((a, c) => a + (c.cant > 0 ? c.cant : 0), 0);
-  const total = subtotalPasajeros + totalCargos - totalDescuentos;
-  const completo = faltantes.length === 0 && pax > 0;
+  const pax = cant.adultos + cant.ninos + cant.infantes;
   const anticipo = esNum(val.anticipo) ? val.anticipo : null;
+  const ops = opcionesDe(val).map(o => {
+    o = o || {};
+    const cats = [
+      { k: "adultos", campo: "precioAdulto", l: "Adultos", unit: o.precioAdulto },
+      { k: "ninos", campo: "precioNino", l: "Niños", unit: o.precioNino },
+      { k: "infantes", campo: "precioInfante", l: "Infantes", unit: o.precioInfante }
+    ];
+    const faltantes = [], lineas = [];
+    let subtotalPasajeros = 0;
+    cats.forEach(c => {
+      const n = cant[c.k];
+      if (!(n > 0)) return;
+      const ok = esNum(c.unit) && c.unit >= 0;
+      if (!ok) faltantes.push(c.k);
+      const sub = ok ? n * c.unit : null;
+      if (ok) subtotalPasajeros += sub;
+      lineas.push({ k: c.k, campo: c.campo, concepto: c.l, cant: n, unit: ok ? c.unit : null, subtotal: sub });
+    });
+    const total = subtotalPasajeros + totalCargos - totalDescuentos;
+    const completo = faltantes.length === 0 && pax > 0;
+    return { nombre: s(o.nombre), detalle: s(o.detalle), lineas, faltantes, completo, subtotalPasajeros, total,
+      porPersona: completo && pax > 0 ? Math.round(total / pax) : null, saldo: anticipo != null ? total - anticipo : null };
+  });
+  const elegida = Number.isInteger(val.opcionElegida) && ops[val.opcionElegida] ? val.opcionElegida : null;
+  const p = ops[elegida != null ? elegida : 0];
+  const completos = ops.filter(o => o.completo);
   return {
-    lineas, cargos, descuentos, faltantes, pax, completo,
-    subtotalPasajeros, totalCargos, totalDescuentos, total,
-    porPersona: pax > 0 && completo ? Math.round(total / pax) : null,
-    anticipo,
-    saldo: anticipo != null ? total - anticipo : null
+    opciones: ops, multiple: ops.length > 1, elegida,
+    lineas: p.lineas, faltantes: p.faltantes, subtotalPasajeros: p.subtotalPasajeros, total: p.total, porPersona: p.porPersona, saldo: p.saldo,
+    completo: ops.every(o => o.completo),
+    minimo: completos.length ? Math.min(...completos.map(o => o.total)) : null,
+    cargos, descuentos, totalCargos, totalDescuentos, pax, anticipo
   };
 }
 
@@ -138,8 +154,15 @@ function validar(q, modo) {
   else if (edades.length && edades.length !== ninos) add("viaje", "v_edades", "Escribiste " + plural(edades.length, "edad", "edades") + " pero hay " + plural(ninos, "niño", "niños") + ".");
   (v.tramos || []).forEach((t, i) => { if (s(t.fecha) && !fechaValida(t.fecha)) add("viaje", "tramo_" + i, "La fecha del trayecto " + (i + 1) + " no es válida."); });
   // Valores
-  const montos = [["precioAdulto", "precio por adulto"], ["precioNino", "precio por niño"], ["precioInfante", "precio por infante"], ["anticipo", "anticipo"]];
-  montos.forEach(([k, l]) => { if (val[k] != null && (!esNum(val[k]) || val[k] < 0)) add("valores", "p_" + k, "El " + l + " no es un valor válido."); });
+  const ops = opcionesDe(val), varias = ops.length > 1;
+  const nomOp = i => "la opción " + (i + 1) + (s(ops[i].nombre) ? " (" + s(ops[i].nombre) + ")" : "");
+  ops.forEach((o, i) => {
+    [["precioAdulto", "precio por adulto"], ["precioNino", "precio por niño"], ["precioInfante", "precio por infante"]].forEach(([k, l]) => {
+      if (o[k] != null && (!esNum(o[k]) || o[k] < 0)) add("valores", "op_" + i + "_" + k, "El " + l + (varias ? " de " + nomOp(i) : "") + " no es un valor válido.");
+    });
+    if (varias && !s(o.nombre)) add("valores", "op_" + i + "_nombre", "Escribe el nombre de la opción " + (i + 1) + " (por ejemplo: Todo incluido).");
+  });
+  if (val.anticipo != null && (!esNum(val.anticipo) || val.anticipo < 0)) add("valores", "p_anticipo", "El anticipo no es un valor válido.");
   (val.cargos || []).forEach((x, i) => {
     if (esNum(x.valor) && !s(x.concepto)) add("valores", "cargo_" + i, "Escribe el concepto del cargo " + (i + 1) + ".");
     if (s(x.concepto) && !esNum(x.valor)) add("valores", "cargo_" + i, "Escribe el valor del cargo “" + s(x.concepto) + "”.");
@@ -150,8 +173,8 @@ function validar(q, modo) {
   });
   if (s(cond.fechaLimitePago) && !fechaValida(cond.fechaLimitePago)) add("condiciones", "k_limite", "La fecha límite de pago no es válida.");
   const r = calcular(q);
-  if (r.total < 0) add("valores", "desc_0", "Los descuentos superan el valor de la cotización.");
-  if (r.anticipo != null && r.completo && r.anticipo > r.total) add("valores", "p_anticipo", "El anticipo no puede ser mayor que el valor total.");
+  if (r.opciones.some(o => o.total < 0)) add("valores", "desc_0", "Los descuentos superan el valor de la cotización.");
+  if (r.anticipo != null && r.opciones.some(o => o.completo && r.anticipo > o.total)) add("valores", "p_anticipo", "El anticipo no puede ser mayor que el valor total" + (varias ? " de ninguna opción." : "."));
 
   if (modo === "pdf") {
     if (!s(v.destinos)) add("viaje", "v_destinos", "Escribe el destino del viaje.");
@@ -159,8 +182,11 @@ function validar(q, modo) {
     if (infantes > 0 && adultos === 0) add("viaje", "v_adultos", "Los infantes deben viajar con al menos un adulto.");
     if (ninos > 0 && !edades.length) add("viaje", "v_edades", "Escribe la edad de cada niño.");
     const nombres = { adultos: "por adulto", ninos: "por niño", infantes: "por infante" };
-    r.faltantes.forEach(k => add("valores", "p_" + ({ adultos: "precioAdulto", ninos: "precioNino", infantes: "precioInfante" })[k], "Falta el precio " + nombres[k] + ". Escribe 0 si no tiene costo."));
-    if (r.completo && r.total <= 0) add("valores", "p_precioAdulto", "El valor total debe ser mayor que cero.");
+    const campos = { adultos: "precioAdulto", ninos: "precioNino", infantes: "precioInfante" };
+    r.opciones.forEach((o, i) => {
+      o.faltantes.forEach(k => add("valores", "op_" + i + "_" + campos[k], "Falta el precio " + nombres[k] + (varias ? " en " + nomOp(i) : "") + ". Escribe 0 si no tiene costo."));
+      if (o.completo && o.total <= 0) add("valores", "op_" + i + "_precioAdulto", "El valor total" + (varias ? " de " + nomOp(i) : "") + " debe ser mayor que cero.");
+    });
   }
   return { errores, avisos, ok: errores.length === 0 };
 }
@@ -196,11 +222,16 @@ function mensajeWhatsApp(q) {
   if (s(v.destinos)) l2 += " de tu viaje a " + s(v.destinos);
   if (fechaValida(v.fechaIda)) l2 += " (" + fmtFecha(v.fechaIda) + (fechaValida(v.fechaRegreso) ? " al " + fmtFecha(v.fechaRegreso) : "") + ")";
   lineas.push(l2 + ".");
-  if (r.completo) lineas.push("Valor total: " + fmtMoneda(r.total, (q.valores || {}).moneda) + ".");
+  const mon = (q.valores || {}).moneda;
+  if (r.completo && r.multiple && r.elegida == null) {
+    lineas.push("Te preparé " + r.opciones.length + " opciones:");
+    r.opciones.forEach((o, i) => lineas.push("• Opción " + (i + 1) + (o.nombre ? " – " + o.nombre : "") + ": " + fmtMoneda(o.total, mon)));
+  } else if (r.completo) lineas.push("Valor total" + (r.multiple && o_nombre(r) ? " (" + o_nombre(r) + ")" : "") + ": " + fmtMoneda(r.total, mon) + ".");
   if (fechaValida(q.fechaVencimiento)) lineas.push("Esta cotización está vigente hasta el " + fmtFecha(q.fechaVencimiento) + ".");
   lineas.push("Te adjunto el PDF con todos los detalles. Quedamos atentos a tus preguntas.");
   return lineas.join("\n");
 }
+function o_nombre(r) { return r.elegida != null ? r.opciones[r.elegida].nombre : ""; }
 function enlaceWhatsApp(tel, texto) {
   let d = s(tel).replace(/\D/g, "");
   if (!d) return null;
@@ -481,40 +512,59 @@ async function generarPDF(q, opts) {
   }
   if (s(q.observacionesPaquete)) { tituloSeccion("Observaciones del paquete"); parrafo(q.observacionesPaquete); }
 
-  // Precios: tabla y total se mantienen juntos cuando caben en una página
-  {
-    const nFilas = r.lineas.length + r.cargos.length + r.descuentos.length;
-    const nExtra = [val.mostrarPorPersona && r.porPersona != null && r.pax > 1, r.anticipo != null, r.saldo != null, fechaValida(cond.fechaLimitePago)].filter(Boolean).length;
-    const bloque = 36 + 20 + nFilas * 24 + 6 + 70 + nExtra * 20 + 10;
-    if (!cabe(bloque) && bloque < H - FOOT - 10 - TOP_CONT) nuevaPagina(false);
-  }
-  tituloSeccion("Desglose de precios", 90);
-  const filasP = [];
-  r.lineas.forEach(l => filasP.push({ celdas: [l.concepto, String(l.cant), l.unit != null ? fmtMoneda(l.unit, moneda) : "Por definir", l.subtotal != null ? fmtMoneda(l.subtotal, moneda) : "Por definir"] }));
-  r.cargos.forEach(c => filasP.push({ celdas: [s(c.concepto), "", "", fmtMoneda(c.valor, moneda)] }));
-  r.descuentos.forEach(d => filasP.push({ celdas: [s(d.concepto) || "Descuento", "", "", fmtMoneda(-(d.valor || 0), moneda)], color: C.goldInk }));
-  tabla([{ l: "CONCEPTO", w: 0.43 }, { l: "CANTIDAD", w: 0.13, align: "right" }, { l: "VALOR UNITARIO", w: 0.22, align: "right" }, { l: "SUBTOTAL", w: 0.22, align: "right" }], filasP);
-
-  {
+  // Precios: cada opción (tabla + total) se mantiene junta cuando cabe en una página
+  const etiquetaMoneda = "Valores en " + MONEDAS[moneda].l.toLowerCase().replace(/\(.*\)/, "").trim() + " (" + moneda + ")";
+  const filasDe = o => {
+    const f = [];
+    o.lineas.forEach(l => f.push({ celdas: [l.concepto, String(l.cant), l.unit != null ? fmtMoneda(l.unit, moneda) : "Por definir", l.subtotal != null ? fmtMoneda(l.subtotal, moneda) : "Por definir"] }));
+    r.cargos.forEach(c => f.push({ celdas: [s(c.concepto), "", "", fmtMoneda(c.valor, moneda)] }));
+    r.descuentos.forEach(d => f.push({ celdas: [s(d.concepto) || "Descuento", "", "", fmtMoneda(-(d.valor || 0), moneda)], color: C.goldInk }));
+    return f;
+  };
+  const COLS_P = [{ l: "CONCEPTO", w: 0.43 }, { l: "CANTIDAD", w: 0.13, align: "right" }, { l: "VALOR UNITARIO", w: 0.22, align: "right" }, { l: "SUBTOTAL", w: 0.22, align: "right" }];
+  const filaExtra = (k, vv, negrita) => {
+    T(k, ML + 16, y + 13, { size: 10, color: C.ink, font: negrita ? F.bold : F.reg });
+    TR(vv, ML + CW - 16, y + 13, { size: 10.5, font: F.bold, color: C.navy });
+    y += 20; line(ML, y, ML + CW, y, C.line, 0.5);
+  };
+  r.opciones.forEach((o, i) => {
+    const varias = r.multiple;
     const extra = [];
-    if (val.mostrarPorPersona && r.porPersona != null && r.pax > 1) extra.push(["Valor promedio por pasajero (" + r.pax + " pasajeros)", fmtMoneda(r.porPersona, moneda)]);
-    if (r.anticipo != null) extra.push(["Anticipo requerido", fmtMoneda(r.anticipo, moneda)]);
-    if (r.saldo != null) extra.push(["Saldo pendiente", fmtMoneda(r.saldo, moneda)]);
-    if (fechaValida(cond.fechaLimitePago)) extra.push(["Fecha límite de pago", fmtFecha(cond.fechaLimitePago)]);
-    const h = 62 + extra.length * 20 + (extra.length ? 8 : 0);
-    asegurar(h + 4);
+    if (val.mostrarPorPersona && o.porPersona != null && r.pax > 1) extra.push(["Valor promedio por pasajero (" + r.pax + " pasajeros)", fmtMoneda(o.porPersona, moneda)]);
+    if (varias && o.saldo != null && o.completo) extra.push(["Saldo pendiente si se paga el anticipo", fmtMoneda(o.saldo, moneda)]);
+    const bandaH = varias ? 46 : 58;
+    const bloque = (i === 0 ? 36 : 0) + (varias ? 34 : 0) + 20 + (o.lineas.length + r.cargos.length + r.descuentos.length) * 24 + 6 + bandaH + 12 + extra.length * 20 + 12;
+    if (!cabe(bloque) && bloque < H - FOOT - 10 - TOP_CONT) nuevaPagina(false);
+    if (i === 0) tituloSeccion(varias ? "Opciones y precios" : "Desglose de precios", 90);
+    if (varias) {
+      const elegida = r.elegida === i;
+      T("OPCIÓN " + (i + 1) + (elegida ? "  ·  ELEGIDA" : ""), ML, y + 9, { size: 8, font: F.bold, color: C.goldInk });
+      wrap(o.nombre || "Opción " + (i + 1), F.bold, 12.5, CW).forEach(ln => { y += 16; T(ln, ML, y + 9, { size: 12.5, font: F.bold, color: C.navy }); });
+      y += 6;
+      if (o.detalle) { y += 4; parrafo(o.detalle, { size: 9.5, color: C.muted }); }
+      y += 4;
+    }
+    tabla(COLS_P, filasDe(o));
+    asegurar(bandaH + 8);
     y += 4;
-    rect(ML, y, CW, 58, C.navy);
-    rect(ML, y + 58, CW, 2, C.gold);
-    spaced("VALOR TOTAL", ML + 16, y + 24, { size: 9, font: F.bold, color: C.gold, spacing: 1.8 });
-    T("Valores en " + MONEDAS[moneda].l.toLowerCase().replace(/\(.*\)/, "").trim() + " (" + moneda + ")", ML + 16, y + 40, { size: 8.5, color: C.onNavyMuted });
-    TR(r.completo ? fmtMoneda(r.total, moneda) : "Por definir", ML + CW - 16, y + 38, { size: 24, font: F.bold, color: C.white });
-    y += 66;
-    extra.forEach(([k, vv], i) => {
-      T(k, ML + 16, y + 13, { size: 10, color: C.ink, font: i === extra.length - 1 && k === "Saldo pendiente" ? F.bold : F.reg });
-      TR(vv, ML + CW - 16, y + 13, { size: 10.5, font: F.bold, color: C.navy });
-      y += 20; line(ML, y, ML + CW, y, C.line, 0.5);
-    });
+    rect(ML, y, CW, bandaH, C.navy);
+    rect(ML, y + bandaH, CW, 2, C.gold);
+    spaced(varias ? "TOTAL OPCIÓN " + (i + 1) : "VALOR TOTAL", ML + 16, y + (varias ? 20 : 24), { size: 9, font: F.bold, color: C.gold, spacing: 1.8 });
+    T(etiquetaMoneda, ML + 16, y + (varias ? 34 : 40), { size: 8.5, color: C.onNavyMuted });
+    TR(o.completo ? fmtMoneda(o.total, moneda) : "Por definir", ML + CW - 16, y + (varias ? 31 : 38), { size: varias ? 20 : 24, font: F.bold, color: C.white });
+    y += bandaH + 8;
+    extra.forEach(([k, vv]) => { asegurar(20); filaExtra(k, vv, false); });
+    y += varias ? 14 : 0;
+  });
+  {
+    const comunes = [];
+    if (r.anticipo != null) comunes.push(["Anticipo requerido", fmtMoneda(r.anticipo, moneda), false]);
+    if (!r.multiple && r.saldo != null) comunes.push(["Saldo pendiente", fmtMoneda(r.saldo, moneda), true]);
+    if (fechaValida(cond.fechaLimitePago)) comunes.push(["Fecha límite de pago", fmtFecha(cond.fechaLimitePago), false]);
+    if (comunes.length) {
+      asegurar(comunes.length * 20 + 6);
+      comunes.forEach(([k, vv, b]) => filaExtra(k, vv, b));
+    }
     y += 10;
   }
 
@@ -565,6 +615,6 @@ async function generarPDF(q, opts) {
   return await doc.save();
 }
 
-const API = { AGENCIA, ESTADOS, MONEDAS, fmtFecha, fechaValida, diasEntre, fmtMoneda, fmtTel, codigo, parseEdades, enteroONulo, calcular, validar, textoPasajeros, nombreArchivo, mensajeWhatsApp, enlaceWhatsApp, generarPDF };
+const API = { opcionesDe, AGENCIA, ESTADOS, MONEDAS, fmtFecha, fechaValida, diasEntre, fmtMoneda, fmtTel, codigo, parseEdades, enteroONulo, calcular, validar, textoPasajeros, nombreArchivo, mensajeWhatsApp, enlaceWhatsApp, generarPDF };
 if (typeof module !== "undefined" && module.exports) module.exports = API; else root.DTCot = API;
 })(typeof window !== "undefined" ? window : globalThis);

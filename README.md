@@ -11,7 +11,7 @@ Diseño azul marino, dorado y blanco · interfaz en español · moneda COP · fe
 | Versión | Dónde funciona | Estado |
 |---|---|---|
 | `version-claude/` | Dentro de la app de Claude (artefacto con base de datos propia) | En uso |
-| `web/` (versión web independiente: Supabase + Netlify) | Enlace propio en Safari, celular y computador | Lista para publicar |
+| `web/` (versión web independiente: Supabase + Netlify) | https://diamondtravel-crm.netlify.app | Publicada |
 
 ### Módulos de la versión Claude
 - Inicio con indicadores (presupuesto en proceso, clientes nuevos, cotizaciones por responder, ventas cerradas).
@@ -29,6 +29,12 @@ Diseño azul marino, dorado y blanco · interfaz en español · moneda COP · fe
   y cotizaciones, salvo que el administrador habilite ver todo). Las cuentas nuevas quedan pendientes hasta que el administrador las activa.
 - El número de cotización lo asigna la base de datos (consecutivo sin repetidos).
 - Migración desde la versión Claude: Respaldo → Restaurar con el JSON descargado desde la versión Claude.
+- **Seguimientos de hoy** (Inicio): el CRM prepara el mensaje (cotización sin respuesta, cliente sin contacto,
+  viaje próximo, regreso) y se envía por WhatsApp con un toque. El administrador edita textos y días en Equipo.
+- **Plantillas de cotización** (por ejemplo "San Andrés"): guardan destino, servicios, condiciones y opciones;
+  no guardan cliente, fechas, pasajeros ni precios.
+- **Varias opciones de precio** por cotización (por ejemplo solo desayuno / todo incluido), cada una con su total en el PDF.
+- Actualizaciones de la base de datos: `supabase/02-seguimientos-y-plantillas.sql` (se ejecuta una vez, después de `schema.sql`).
 - Pruebas de extremo a extremo con Supabase simulado y datos ficticios: `web-pruebas/`.
 
 ## Estructura

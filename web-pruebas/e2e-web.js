@@ -26,6 +26,7 @@ async function nuevaPagina(browser, vp) {
   await page.goto('https://crm.test/');
   return page;
 }
+const enDias = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 const vis = (page, sel) => page.locator(sel + ':visible');
 
 (async () => {
@@ -73,15 +74,15 @@ const vis = (page, sel) => page.locator(sel + ':visible');
   await T('button[data-act="nueva-cot"]:visible').first().click();
   await T('#cliBusca').fill('Laura'); await T('button.pick', { hasText: 'Laura' }).click();
   ok('Asesor(a) se llena con el nombre del perfil', (await T('#e_asesorNombre').inputValue()) === 'Nicol Admin Prueba');
-  await T('#e_fechaVencimiento').fill('2026-10-19');
+  await T('#e_fechaVencimiento').fill(enDias(3));
   await T('.ed-tab[data-tab="viaje"]').click();
-  await T('#e_viaje_destinos').fill('Cancún y Riviera Maya'); await T('#e_viaje_fechaIda').fill('2026-12-20'); await T('#e_viaje_fechaRegreso').fill('2026-12-27');
+  await T('#e_viaje_destinos').fill('Cancún y Riviera Maya'); await T('#e_viaje_fechaIda').fill(enDias(60)); await T('#e_viaje_fechaRegreso').fill(enDias(67));
   await T('#e_viaje_adultos').fill('2'); await T('#e_viaje_ninos').fill('2'); await T('#e_viaje_edadesNinos').fill('5, 8'); await T('#e_viaje_infantes').fill('1');
   await T('#e_viaje_hotel').fill('Hotel Ejemplo');
   await T('.ed-tab[data-tab="servicios"]').click();
   await T('button[data-ed="sug-serv"]', { hasText: 'Tiquetes aéreos' }).click();
   await T('.ed-tab[data-tab="valores"]').click();
-  await T('#e_valores_precioAdulto').pressSequentially('4500000'); await T('#e_valores_precioNino').pressSequentially('3200000'); await T('#e_valores_precioInfante').pressSequentially('0');
+  await T('#e_valores_opciones_0_precioAdulto').pressSequentially('4500000'); await T('#e_valores_opciones_0_precioNino').pressSequentially('3200000'); await T('#e_valores_opciones_0_precioInfante').pressSequentially('0');
   await T('button[data-ed="add-cargo"]').click(); await T('#e_cargo_0c').fill('Cargo de prueba'); await T('#e_cargo_0v').pressSequentially('180000');
   await T('button[data-ed="add-desc"]').click(); await T('#e_desc_0c').fill('Descuento de prueba'); await T('#e_desc_0v').pressSequentially('400000');
   await T('#e_valores_anticipo').pressSequentially('5000000');
@@ -92,7 +93,8 @@ const vis = (page, sel) => page.locator(sel + ':visible');
   await page.waitForFunction(() => window.__mockDB().config.some(c => c.clave === 'condiciones'));
   ok('Admin guarda condiciones predeterminadas', true);
   await T('button[data-ed="save-pdf"]').click();
-  await page.waitForFunction(() => document.querySelectorAll('#pvPages canvas').length > 0 || /no se pudo/i.test((document.getElementById('pvStatus') || {}).textContent || ''), null, { timeout: 30000 });
+  try { await page.waitForFunction(() => document.querySelectorAll('#pvPages canvas').length > 0 || /no se pudo/i.test((document.getElementById('pvStatus') || {}).textContent || ''), null, { timeout: 30000 }); }
+  catch (e) { console.log('DEBUG', page.errores.join(' | '), '| toast:', await page.locator('#toastRoot').innerText(), '| err:', await page.locator('.errbox').allInnerTexts()); throw e; }
   ok('Guardar y generar PDF', (await T('#pvPages canvas').count()) > 0, await T('#pvStatus').innerText());
   const q = await page.evaluate(() => window.__mockDB().cotizaciones[0]);
   ok('Cotización en la base: número 1, total 15180000, vinculada', q.numero === 1 && q.total === 15180000 && !!q.cliente_id && q.datos.viaje.destinos === 'Cancún y Riviera Maya');

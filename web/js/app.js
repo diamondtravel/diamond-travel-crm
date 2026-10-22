@@ -51,7 +51,7 @@ function icon(path,size){return '<svg viewBox="0 0 24 24" width="'+(size||22)+'"
 
 /* ---------- State ---------- */
 const S={
-  sb:null,session:null,perfil:null,equipo:[],config:{},hist:{},
+  sb:null,session:null,perfil:null,equipo:[],config:{},hist:{},plantillas:[],segs:[],faltaActualizacion:false,segTodos:false,
   meId:null,isAdmin:false,
   ready:false,dbMissing:false,readOnly:false,loadError:null,
   clientes:[],cotizaciones:[],cotReady:false,
@@ -147,13 +147,14 @@ function renderMe(){
 /* ---------- Views ---------- */
 function bannerEstado(){
   if(S.loadError)return '<div class="banner warn">No se pudieron cargar los datos: '+esc(explicarError(S.loadError))+'</div>';
+  if(S.faltaActualizacion&&S.isAdmin)return '<div class="banner warn">Falta un paso: ejecuta en Supabase el archivo <b>02-seguimientos-y-plantillas.sql</b> para activar los seguimientos y las plantillas.</div>';
   return "";
 }
 function vacioInicial(){
   return '<div class="panel empty">'+
     '<svg width="54" height="54" viewBox="0 0 34 34" aria-hidden="true"><path d="M9 6h16l6 8-14 15L3 14z" fill="none" stroke="var(--gold)" stroke-width="1.4" stroke-linejoin="round"/><path d="M3 14h28M13 6l-3 8 7 15 7-15-3-8" fill="none" stroke="var(--gold)" stroke-width="1" opacity=".7" stroke-linejoin="round"/></svg>'+
     '<h2 style="font-family:var(--f-display);font-size:22px">Aún no hay clientes registrados</h2>'+
-    '<p class="muted">Cada cliente que agregues queda guardado y lo ven al instante todas las personas con acceso a este CRM.</p>'+
+    '<p class="muted">Cada cliente que agregues queda guardado en la base de datos de Diamond Travel y lo puedes consultar desde el iPad, el celular o el computador.</p>'+
     '<div class="chips" style="justify-content:center"><button class="btn btn-gold" data-act="nuevo">Agregar primer cliente</button>'+(S.isAdmin?'<button class="btn" data-act="demo">Cargar 3 clientes de prueba</button>':'')+'</div>'+
     (S.isAdmin?'<p class="help">Los clientes de prueba quedan marcados como PRUEBA y puedes borrarlos todos desde Respaldo.</p>':'')+'</div>';
 }
@@ -172,10 +173,6 @@ function viewInicio(){
     .map(c=>({c:c,d:diasHasta(c.fechaViaje)}))
     .filter(x=>x.d!==null&&x.d>=0&&x.d<=60)
     .sort((a,b)=>a.d-b.d).slice(0,6);
-  const sinSeg=activos
-    .map(c=>({c:c,d:diasDesde(c.ultimoContacto||c.creadoEn)}))
-    .filter(x=>x.d!==null&&x.d>=7)
-    .sort((a,b)=>b.d-a.d).slice(0,6);
   const conteo=ETAPAS.map(e=>({e:e,n:cs.filter(c=>c.etapa===e.k).length}));
   const maxN=Math.max(1,...conteo.map(x=>x.n));
 
@@ -193,18 +190,15 @@ function viewInicio(){
     '<div class="kpi clickable" data-view-go="cotizaciones"><span class="k">Cotizaciones por responder</span><span class="v">'+pend.length+'</span><span class="k num">'+(valorPend?fmtCOP(valorPend):"Enviadas, sin respuesta")+'</span></div>'+
     '<div class="kpi"><span class="k">Ventas cerradas este mes</span><span class="v">'+ganadosMes+'</span></div></div>';
 
+  h+=panelSeguimientos();
   h+='<div class="cols">';
-  h+='<div class="panel panel-pad"><div class="section-title"><h2>Necesitan seguimiento</h2><span class="help">7 días o más sin contacto</span></div><div class="list">'+
-    (sinSeg.length?sinSeg.map(x=>'<div class="row clickable" data-open="'+esc(x.c.id)+'"><div class="row-main"><span class="row-title">'+esc(x.c.nombre)+'</span><span class="row-sub">'+esc(etapaLabel(x.c.etapa))+' · '+esc(x.c.destinos||"Destino por definir")+'</span></div><span class="pill st-negociacion num">'+x.d+' días</span></div>').join("")
-    :'<p class="muted" style="margin:6px 0">Todos los clientes activos tienen contacto reciente.</p>')+'</div></div>';
-
   h+='<div class="panel panel-pad"><div class="section-title"><h2>Embudo comercial</h2><button class="btn btn-ghost btn-sm" data-view-go="embudo">Ver tablero</button></div>'+
     conteo.map(x=>'<div class="funnel-row"><span>'+esc(x.e.l)+'</span><div class="bar-track"><div class="bar-fill" style="width:'+(x.n/maxN*100)+'%"></div></div><span class="num" style="text-align:right;font-weight:600">'+x.n+'</span></div>').join("")+'</div>';
-  h+='</div>';
 
   h+='<div class="panel panel-pad"><div class="section-title"><h2>Viajes en los próximos 60 días</h2></div><div class="list">'+
     (proximos.length?proximos.map(x=>'<div class="row clickable" data-open="'+esc(x.c.id)+'"><div class="row-main"><span class="row-title">'+esc(x.c.destinos||"Destino por definir")+'</span><span class="row-sub">'+esc(x.c.nombre)+' · '+fmtFecha(x.c.fechaViaje)+'</span></div><span class="pill st-'+esc(x.c.etapa)+'">'+esc(etapaLabel(x.c.etapa))+'</span></div>').join("")
     :'<p class="muted" style="margin:6px 0">No hay viajes con fecha tentativa en los próximos 60 días.</p>')+'</div></div>';
+  h+='</div>';
   h+='<p class="help">Las reservas y los pagos por cobrar se sumarán aquí cuando construyamos esos módulos.</p>';
   return h;
 }
@@ -305,6 +299,7 @@ function bindView(){
   const ec=v.querySelector('[data-act="exp-csv"]'); if(ec)ec.onclick=exportarCSV;
   const ecq=v.querySelector('[data-act="exp-csv-q"]'); if(ecq)ecq.onclick=exportarCSVCot;
   v.querySelectorAll('[data-act="nueva-cot"]').forEach(b=>b.onclick=()=>abrirEditor(null));
+  v.querySelectorAll('[data-act="plantillas"]').forEach(b=>b.onclick=abrirPlantillas);
   v.querySelectorAll("[data-cot]").forEach(el=>el.onclick=()=>abrirCotizacion(el.dataset.cot));
   const qq=v.querySelector("#qq");
   if(qq)qq.oninput=()=>{S.cq=qq.value;const L=v.querySelector("#cotList");L.innerHTML=listaCotHTML();L.querySelectorAll("[data-cot]").forEach(el=>el.onclick=()=>abrirCotizacion(el.dataset.cot));};
@@ -312,6 +307,7 @@ function bindView(){
   const dd=v.querySelector('[data-act="del-demo"]'); if(dd)dd.onclick=borrarDemo;
   const imp=v.querySelector("#impFile"); if(imp)imp.onchange=()=>importar(imp);
   if(S.view==="equipo")bindEquipo(v);
+  if(S.view==="inicio")bindSeguimientos(v);
 }
 
 /* ---------- Client form ---------- */
@@ -498,7 +494,11 @@ const estadoLabel=k=>(D.ESTADOS.find(e=>e.k===k)||{l:k}).l;
 const monedaDe=q=>((q.valores||{}).moneda)||"COP";
 const ICON_PLUS='<path d="M12 5v14M5 12h14"/>';
 const ICON_X='<path d="M6 6l12 12M18 6 6 18"/>';
-function totalTxt(q){const r=D.calcular(q);return r.completo?D.fmtMoneda(r.total,monedaDe(q)):"Por definir";}
+function totalTxt(q){
+  const r=D.calcular(q);if(!r.completo)return "Por definir";
+  if(r.multiple&&r.elegida==null)return "Desde "+D.fmtMoneda(r.minimo,monedaDe(q));
+  return D.fmtMoneda(r.total,monedaDe(q));
+}
 function vencida(q){return (q.estado==="borrador"||q.estado==="enviada")&&D.fechaValida(q.fechaVencimiento)&&q.fechaVencimiento<hoyISO();}
 const clone=o=>JSON.parse(JSON.stringify(o==null?null:o));
 
@@ -523,7 +523,7 @@ function cotCardHTML(q){
 function listaCotHTML(){const l=filtrarCot();return l.length?l.map(cotCardHTML).join(""):'<div class="empty"><p class="muted">Ninguna cotización coincide con la búsqueda.</p></div>';}
 function viewCotizaciones(){
   let h='<div class="page-head"><div><span class="eyebrow">Generador de cotizaciones</span><h1>Cotizaciones</h1></div>'+
-    (S.readOnly||S.dbMissing?'':'<button class="btn btn-gold" data-act="nueva-cot">'+icon(ICON_PLUS,18)+'Nueva cotización</button>')+'</div>';
+    (S.readOnly||S.dbMissing?'':'<div class="actions"><button class="btn" data-act="plantillas">Plantillas'+(S.plantillas.length?' ('+S.plantillas.length+')':'')+'</button><button class="btn btn-gold" data-act="nueva-cot">'+icon(ICON_PLUS,18)+'Nueva cotización</button></div>')+'</div>';
   h+=bannerEstado();
   if(!S.cotReady&&!S.dbMissing)return h+'<div class="panel empty"><p class="muted">Cargando cotizaciones…</p></div>';
   if(!S.cotizaciones.length)return h+'<div class="panel empty"><h2 style="font-family:var(--f-display);font-size:22px">Aún no hay cotizaciones</h2>'+
@@ -564,7 +564,7 @@ function pintarCotizacion(){
       '<div class="pass-name">'+esc(D.codigo(q.numero))+'</div>'+
       '<div class="pass-grid"><div><div class="k">Cliente</div><div class="v">'+esc(c.nombre||"—")+'</div></div><div><div class="k">Destino</div><div class="v">'+esc(v.destinos||"Por definir")+'</div></div>'+
       '<div><div class="k">Fechas</div><div class="v num">'+esc(fechas)+'</div></div><div><div class="k">Pasajeros</div><div class="v">'+esc(D.textoPasajeros(v)||"—")+'</div></div></div></div>'+
-      '<div class="pass-stub"><div><div class="brand-sub">Valor total</div><div class="budget">'+esc(r.completo?D.fmtMoneda(r.total,mon):"Por definir")+'</div></div><div style="font-size:12.5px;color:var(--on-navy-muted)">'+(D.fechaValida(q.fechaVencimiento)?"Válida hasta "+D.fmtFecha(q.fechaVencimiento):"Sin fecha de vigencia")+'</div></div></div>'+
+      '<div class="pass-stub"><div><div class="brand-sub">'+(r.multiple?(r.elegida!=null?"Opción elegida":r.opciones.length+" opciones"):"Valor total")+'</div><div class="budget">'+esc(totalTxt(q))+'</div></div><div style="font-size:12.5px;color:var(--on-navy-muted)">'+(D.fechaValida(q.fechaVencimiento)?"Válida hasta "+D.fmtFecha(q.fechaVencimiento):"Sin fecha de vigencia")+'</div></div></div>'+
     (chk.ok?'':'<div class="errbox"><b>Para generar el PDF falta completar:</b><ul>'+chk.errores.map(e=>'<li>'+esc(e.msg)+'</li>').join("")+'</ul></div>')+
     '<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Documento PDF</h2>'+
       '<div class="actions"><button class="btn btn-gold" id="qGen"'+(chk.ok?'':' disabled')+'>Generar PDF</button><button class="btn" id="qDown"'+(chk.ok?'':' disabled')+'>Descargar PDF</button></div>'+
@@ -580,7 +580,8 @@ function pintarCotizacion(){
       kv("Teléfono",D.fmtTel(c.telefono))+kv("Correo",c.email)+kv("Asesor(a)",q.asesorNombre)+kv("Elaborada",D.fmtFecha(q.fechaElaboracion))+kv("Salida desde",v.ciudadSalida)+
       kv("Noches",v.noches!=null?String(v.noches):"")+kv("Aerolínea",v.aerolinea)+kv("Hotel",[v.hotel,v.categoriaHotel].filter(Boolean).join(" · "))+kv("Alimentación",v.regimen)+
       kv("Servicios incluidos",(q.servicios||[]).filter(x=>x.incluido!==false&&x.descripcion).length?String((q.servicios||[]).filter(x=>x.incluido!==false&&x.descripcion).length):"")+
-      kv("Anticipo",r.anticipo!=null?D.fmtMoneda(r.anticipo,mon):"")+kv("Saldo",r.saldo!=null&&r.completo?D.fmtMoneda(r.saldo,mon):"")+kv("Fecha límite de pago",D.fmtFecha((q.condiciones||{}).fechaLimitePago))+
+      kv("Anticipo",r.anticipo!=null?D.fmtMoneda(r.anticipo,mon):"")+kv("Saldo",r.saldo!=null&&r.completo&&(!r.multiple||r.elegida!=null)?D.fmtMoneda(r.saldo,mon):"")+
+      (r.multiple?kv("Opciones",r.opciones.map((o,i)=>(r.elegida===i?"✓ ":"")+"Opción "+(i+1)+(o.nombre?" – "+o.nombre:"")+": "+(o.completo?D.fmtMoneda(o.total,mon):"por definir")).join("\n")):"")+kv("Fecha límite de pago",D.fmtFecha((q.condiciones||{}).fechaLimitePago))+
     '</dl></div>'+
     (puede?'<div class="sheet-foot" style="justify-content:space-between"><div class="chips">'+(S.isAdmin?'<button class="btn btn-danger" id="qDel">Eliminar</button>':'')+'<button class="btn" id="qDup">Duplicar</button></div><button class="btn btn-gold" id="qEdit">Editar cotización</button></div>':'')+
     '</div>',"","cot");
@@ -603,6 +604,13 @@ async function cambiarEstadoCot(q,nuevo){
   if(q.estado===nuevo)return;
   const ahora=new Date().toISOString();
   const cl=q.clienteId?S.clientes.find(x=>x.id===q.clienteId):null;
+  let qNueva=null;
+  const rq=D.calcular(q);
+  if(nuevo==="aceptada"&&rq.multiple){
+    const idx=await elegirOpcion(q);
+    if(idx==null){pintarCotizacion();return;}
+    qNueva=clone(q);qNueva.valores=Object.assign({},qNueva.valores,{opcionElegida:idx});
+  }
   let marcarGanado=false;
   if(nuevo==="aceptada"&&cl&&cl.etapa!=="ganado"){
     const ans=await confirmar("Cotización aceptada","¿Quieres pasar también a "+cl.nombre+" a la etapa “Venta cerrada” del embudo?","Sí, venta cerrada",false,"Solo la cotización");
@@ -610,7 +618,7 @@ async function cambiarEstadoCot(q,nuevo){
     marcarGanado=ans===true;
   }
   const hist=(q.historialEstados||[]).slice();hist.push({estado:nuevo,fecha:ahora,autor:S.meId});
-  if(!(await guardar(()=>api.actualizarCotizacion(q.id,{estado:nuevo,historialEstados:hist})))){pintarCotizacion();return;}
+  if(!(await guardar(()=>api.actualizarCotizacion(q.id,{estado:nuevo,historialEstados:hist,cotizacion:qNueva})))){pintarCotizacion();return;}
   if(cl){
     const patch={};
     await api.agregarHistorial(cl.id,"Cotización","Cotización "+D.codigo(q.numero)+" marcada como “"+estadoLabel(nuevo)+"”.");
@@ -619,6 +627,18 @@ async function cambiarEstadoCot(q,nuevo){
     if(Object.keys(patch).length)await guardar(()=>api.actualizarCliente(cl.id,patch));
   }
   toast("Estado actualizado: "+estadoLabel(nuevo));
+}
+
+function elegirOpcion(q){
+  const r=D.calcular(q),mon=monedaDe(q);
+  return new Promise(res=>{
+    const s=openOverlay('<div class="sheet-head"><h2>¿Qué opción eligió el cliente?</h2></div><div class="sheet-body">'+
+      '<p class="muted" style="margin:0">La cotización '+esc(D.codigo(q.numero))+' tiene '+r.opciones.length+' opciones. La elegida queda marcada en el PDF y su valor se usa en los reportes.</p>'+
+      '<div class="list">'+r.opciones.map((o,i)=>'<button type="button" class="pick" data-op="'+i+'"><span><b>Opción '+(i+1)+(o.nombre?' – '+esc(o.nombre):'')+'</b>'+(o.detalle?'<br><span class="help">'+esc(o.detalle)+'</span>':'')+'</span><b class="num">'+(o.completo?esc(D.fmtMoneda(o.total,mon)):"Por definir")+'</b></button>').join("")+'</div>'+
+      '<div class="sheet-foot"><button class="btn" id="opNo">Cancelar</button></div></div>',"confirm","elegir");
+    s.querySelectorAll("[data-op]").forEach(b=>b.onclick=()=>{closeOverlay("elegir");res(+b.dataset.op);});
+    s.querySelector("#opNo").onclick=()=>{closeOverlay("elegir");res(null);};
+  });
 }
 
 /* ----- PDF: carga de librerías, generación, vista previa y descarga ----- */
@@ -733,9 +753,16 @@ function cotVacia(){
     clienteId:null,cliente:{nombre:"",telefono:"",email:""},
     viaje:{destinos:"",ciudadSalida:"",fechaIda:"",fechaRegreso:"",noches:null,adultos:null,ninos:null,edadesNinos:"",infantes:null,aerolinea:"",equipaje:"",tramos:[],hotel:"",categoriaHotel:"",habitacion:"",regimen:"",traslados:"",tours:"",asistencia:""},
     servicios:[],observacionesPaquete:"",
-    valores:{moneda:"COP",precioAdulto:null,precioNino:null,precioInfante:null,cargos:[],descuentos:[],anticipo:null,mostrarPorPersona:false},
+    valores:{moneda:"COP",opciones:[opcionVacia()],cargos:[],descuentos:[],anticipo:null,mostrarPorPersona:false},
     condiciones:{politicaAnticipo:"",fechaLimitePago:"",politicaCancelacion:"",equipaje:"",disponibilidad:"",noIncluidos:"",adicionales:""},
     historialEstados:[]};
+}
+function opcionVacia(){return {nombre:"",detalle:"",precioAdulto:null,precioNino:null,precioInfante:null};}
+function normalizarValores(e){
+  const v=e.valores||(e.valores={});
+  v.opciones=clone(D.opcionesDe(v)).map(o=>Object.assign(opcionVacia(),o));
+  delete v.precioAdulto;delete v.precioNino;delete v.precioInfante;
+  return e;
 }
 function completar(base,obj){ // rellena claves que falten sin pisar las existentes
   Object.keys(base).forEach(k=>{
@@ -755,6 +782,7 @@ function abrirEditor(id,opts){
     E.numero=null;E.estado="borrador";E.fechaElaboracion=hoyISO();E.fechaVencimiento="";E.historialEstados=[];
     E.asesorId=S.meId;E.asesorNombre=(S.perfil||{}).nombre||src.asesorNombre||"";
     E.duplicadaDe=src.numero||null;
+    if(E.valores)delete E.valores.opcionElegida;
   }else{
     E=cotVacia();
     if(opts.clienteId){
@@ -762,6 +790,8 @@ function abrirEditor(id,opts){
       if(c){vincularCliente(c);E.viaje.destinos=c.destinos||"";if(c.fechaViaje)E.viaje.fechaIda=c.fechaViaje;if(c.adultos!=null)E.viaje.adultos=c.adultos;if(c.ninos)E.viaje.ninos=c.ninos;}
     }
   }
+  normalizarValores(E);
+  if(opts.plantillaId){const pl=S.plantillas.find(x=>x.id===opts.plantillaId);if(pl)aplicarPlantilla(pl);}
   edTab="cliente";edErrores=[];edBusca="";edGuardando=false;
   edNuevoCli=!E.clienteId&&!!(E.cliente&&E.cliente.nombre);
   const auto=D.diasEntre(E.viaje.fechaIda,E.viaje.fechaRegreso);
@@ -799,6 +829,7 @@ function edTabCliente(){
     fld("Válida hasta","fechaVencimiento","date",{campo:"q_venc"})+
     fld("Asesor(a) que elabora","asesorNombre","text",{max:80,ph:"Tu nombre"})+'</div>'+
     '<p class="help" style="margin:0">'+(E.numero?"Número de cotización: <b>"+esc(D.codigo(E.numero))+"</b>":"El número consecutivo se asigna automáticamente al guardar.")+(E.duplicadaDe?" · Copia de "+esc(D.codigo(E.duplicadaDe)):"")+'</p>'+
+    plantillaSelectorHTML()+
     '<span class="fs-title">Cliente</span>';
   if(E.clienteId){
     const existe=S.clientes.some(x=>x.id===E.clienteId);
@@ -890,23 +921,29 @@ function edTabServicios(){
     fld("Observaciones específicas de este paquete","observacionesPaquete","textarea",{max:4000})+
   '</div>';
 }
-function lineaCat(k){
-  const r=D.calcular(E),mon=E.valores.moneda;const l=r.lineas.find(x=>x.k===k);
+function lineaCat(i,k){
+  const r=D.calcular(E),mon=E.valores.moneda,o=r.opciones[i];if(!o)return "";
+  const l=o.lineas.find(x=>x.k===k);
   if(!l)return "Sin pasajeros en esta categoría";
   return l.cant+" × "+(l.unit!=null?D.fmtMoneda(l.unit,mon):"sin precio")+" = "+(l.subtotal!=null?D.fmtMoneda(l.subtotal,mon):"falta el precio");
 }
 function calcHTML(){
   const r=D.calcular(E),mon=E.valores.moneda,f=n=>D.fmtMoneda(n,mon);
-  let h='<div class="calc">';
-  if(!r.pax)h+='<div class="calc-row"><span class="muted">Indica los pasajeros en la pestaña Viaje.</span></div>';
-  r.lineas.forEach(l=>{h+='<div class="calc-row"><span>'+esc(l.concepto)+' ('+l.cant+')</span><b>'+(l.subtotal!=null?f(l.subtotal):'<span class="err">Falta el precio</span>')+'</b></div>';});
-  if(r.totalCargos)h+='<div class="calc-row"><span>Otros cargos</span><b>'+f(r.totalCargos)+'</b></div>';
-  if(r.totalDescuentos)h+='<div class="calc-row"><span>Descuentos</span><b>'+f(-r.totalDescuentos)+'</b></div>';
-  h+='<div class="calc-total"><span>Valor total</span><b>'+(r.completo?f(r.total):"Por definir")+'</b></div>';
-  if(r.completo&&r.pax>1)h+='<div class="calc-row"><span>Promedio por pasajero ('+r.pax+')</span><b>'+f(r.porPersona)+'</b></div>';
-  if(r.anticipo!=null)h+='<div class="calc-row"><span>Anticipo requerido</span><b>'+f(r.anticipo)+'</b></div>';
-  if(r.anticipo!=null&&r.completo)h+='<div class="calc-row"><span>Saldo pendiente</span><b>'+f(r.saldo)+'</b></div>';
-  return h+'</div>';
+  let h='';
+  if(!r.pax)return '<div class="calc"><div class="calc-row"><span class="muted">Indica los pasajeros en la pestaña Viaje.</span></div></div>';
+  r.opciones.forEach((o,i)=>{
+    h+='<div class="calc">';
+    if(r.multiple)h+='<div class="calc-row"><b>Opción '+(i+1)+(o.nombre?' – '+esc(o.nombre):'')+'</b></div>';
+    o.lineas.forEach(l=>{h+='<div class="calc-row"><span>'+esc(l.concepto)+' ('+l.cant+')</span><b>'+(l.subtotal!=null?f(l.subtotal):'<span class="err">Falta el precio</span>')+'</b></div>';});
+    if(r.totalCargos)h+='<div class="calc-row"><span>Otros cargos</span><b>'+f(r.totalCargos)+'</b></div>';
+    if(r.totalDescuentos)h+='<div class="calc-row"><span>Descuentos</span><b>'+f(-r.totalDescuentos)+'</b></div>';
+    h+='<div class="calc-total"><span>'+(r.multiple?"Total opción "+(i+1):"Valor total")+'</span><b>'+(o.completo?f(o.total):"Por definir")+'</b></div>';
+    if(o.completo&&r.pax>1)h+='<div class="calc-row"><span>Promedio por pasajero ('+r.pax+')</span><b>'+f(o.porPersona)+'</b></div>';
+    if(r.anticipo!=null&&o.completo)h+='<div class="calc-row"><span>Saldo después del anticipo</span><b>'+f(o.saldo)+'</b></div>';
+    h+='</div>';
+  });
+  if(r.anticipo!=null)h+='<div class="calc"><div class="calc-row"><span>Anticipo requerido</span><b>'+f(r.anticipo)+'</b></div></div>';
+  return '<div class="calc-stack">'+h+'</div>';
 }
 function listaMontos(path,etq){
   const l=getP(E,path)||[],pre=path==="valores.cargos"?"cargo_":"desc_";
@@ -920,9 +957,20 @@ function edTabValores(){
   return '<div class="fieldset">'+
     fld("Moneda","valores.moneda","select",{opts:Object.keys(D.MONEDAS).map(k=>[k,D.MONEDAS[k].l])})+
     '<span class="fs-title">Precios por pasajero</span>'+
-    [["precioAdulto","Precio por adulto","adultos"],["precioNino","Precio por niño","ninos"],["precioInfante","Precio por infante","infantes"]].map(([k,l,c])=>
-      '<div class="price-line">'+fld(l+(n(c)?" ("+n(c)+")":""),"valores."+k,"money",{campo:"p_"+k,ph:n(c)?"Escribe el precio (0 si no tiene costo)":"Sin pasajeros"})+'<span class="sub" data-sub="'+c+'">'+esc(lineaCat(c))+'</span></div>').join("")+
-    '<span class="fs-title">Otros cargos</span>'+listaMontos("valores.cargos","cargo")+
+    '<p class="help" style="margin:0">¿Vas a ofrecer más de una alternativa (por ejemplo, solo desayuno y todo incluido)? Agrega otra opción de precio: cada una tiene su nombre, sus precios y su total en el PDF.</p>'+
+    E.valores.opciones.map((op,i)=>{
+      const varias=E.valores.opciones.length>1;
+      return '<div class="opt-card"><div class="opt-head"><b>'+(varias?"Opción "+(i+1):"Precios")+'</b><div class="actions">'+
+        '<button type="button" class="btn btn-sm" data-ed="dup-opcion" data-i="'+i+'">Duplicar</button>'+
+        (varias?'<button type="button" class="icon-btn" data-ed="del-opcion" data-i="'+i+'" aria-label="Quitar opción '+(i+1)+'">'+icon(ICON_X,18)+'</button>':'')+'</div></div>'+
+        '<div class="grid2">'+fld(varias?"Nombre de la opción *":"Nombre de la opción (opcional)","valores.opciones."+i+".nombre","text",{campo:"op_"+i+"_nombre",max:120,ph:"Ej.: Hotel Sunrise – Todo incluido"})+
+        fld("Detalle (opcional)","valores.opciones."+i+".detalle","text",{max:200,ph:"Ej.: Habitación doble vista al mar"})+'</div>'+
+        [["precioAdulto","Precio por adulto","adultos"],["precioNino","Precio por niño","ninos"],["precioInfante","Precio por infante","infantes"]].map(([k,l,c])=>
+          '<div class="price-line">'+fld(l+(n(c)?" ("+n(c)+")":""),"valores.opciones."+i+"."+k,"money",{campo:"op_"+i+"_"+k,ph:n(c)?"Escribe el precio (0 si no tiene costo)":"Sin pasajeros"})+'<span class="sub" data-sub="'+i+':'+c+'">'+esc(lineaCat(i,c))+'</span></div>').join("")+
+      '</div>';
+    }).join("")+
+    '<div><button type="button" class="btn" data-ed="add-opcion">'+icon(ICON_PLUS,16)+'Agregar otra opción de precio</button></div>'+
+    '<span class="fs-title">Otros cargos</span>'+(E.valores.opciones.length>1?'<p class="help" style="margin:0">Los cargos y descuentos se aplican a todas las opciones.</p>':'')+listaMontos("valores.cargos","cargo")+
     '<div><button type="button" class="btn btn-sm" data-ed="add-cargo">'+icon(ICON_PLUS,16)+'Agregar cargo</button></div>'+
     '<span class="fs-title">Descuentos</span>'+listaMontos("valores.descuentos","descuento")+
     '<div><button type="button" class="btn btn-sm" data-ed="add-desc">'+icon(ICON_PLUS,16)+'Agregar descuento</button></div>'+
@@ -946,26 +994,30 @@ function edTabCondiciones(){
   '</div>';
 }
 function edTotalHTML(){
-  const r=D.calcular(E);
-  return '<span>'+(r.pax?r.pax+(r.pax===1?" pasajero":" pasajeros"):"Sin pasajeros")+'</span><b>'+(r.completo?esc(D.fmtMoneda(r.total,E.valores.moneda)):(r.pax?"Faltan precios":"—"))+'</b>';
+  const r=D.calcular(E),mon=E.valores.moneda;
+  let t;
+  if(!r.pax)t="—";
+  else if(r.multiple)t=r.minimo!=null?(r.opciones.length+" opciones · desde "+D.fmtMoneda(r.minimo,mon)):"Faltan precios";
+  else t=r.completo?D.fmtMoneda(r.total,mon):"Faltan precios";
+  return '<span>'+(r.pax?r.pax+(r.pax===1?" pasajero":" pasajeros"):"Sin pasajeros")+'</span><b>'+esc(t)+'</b>';
 }
 function pintarEditor(arriba){
-  const prev=capaSheet("editor"),top=prev&&!arriba?prev.scrollTop:0;
+  const prevSc=document.querySelector("#overlayRoot .ed-scroll"),top=prevSc&&!arriba?prevSc.scrollTop:0;
   const err=tabsConError();
   const cuerpo={cliente:edTabCliente,viaje:edTabViaje,servicios:edTabServicios,valores:edTabValores,condiciones:edTabCondiciones}[edTab]();
   const s=openOverlay(
-    '<div class="sheet-head"><h2>'+(E.id?"Editar "+esc(D.codigo(E.numero)):"Nueva cotización")+'</h2><button type="button" class="btn btn-ghost btn-sm" data-ed="close">Cerrar</button></div>'+
+    '<div class="sheet-head"><h2>'+(E.id?"Editar "+esc(D.codigo(E.numero)):"Nueva cotización")+'</h2><div class="actions"><button type="button" class="btn btn-sm" data-ed="guardar-plantilla">Guardar como plantilla</button><button type="button" class="btn btn-ghost btn-sm" data-ed="close">Cerrar</button></div></div>'+
     '<div class="ed-tabs" role="tablist">'+TABS_ED.map(t=>'<button type="button" class="ed-tab" role="tab" data-ed="tab" data-tab="'+t.k+'" aria-selected="'+(t.k===edTab)+'">'+t.l+(err.has(t.k)?'<span class="dot" aria-label="con errores"></span>':'')+'</button>').join("")+'</div>'+
-    '<form class="sheet-body" id="edForm" novalidate>'+
+    '<div class="ed-scroll"><form class="sheet-body" id="edForm" novalidate>'+
       (edErrores.length?'<div class="errbox" role="alert"><b>Revisa estos datos:</b><ul>'+edErrores.map(e=>'<li><button type="button" data-ed="goto" data-tab="'+e.tab+'" data-campo="'+esc(e.campo||"")+'">'+esc(e.msg)+'</button></li>').join("")+'</ul></div>':'')+
       cuerpo+
-    '</form>'+
+    '</form></div>'+
     '<div class="ed-foot"><div class="ed-total" id="edTotal">'+edTotalHTML()+'</div><div class="actions">'+
       '<button type="button" class="btn" data-ed="preview">Vista previa</button>'+
       '<button type="button" class="btn" data-ed="save"'+(edGuardando?" disabled":"")+'>'+(edGuardando?"Guardando…":"Guardar borrador")+'</button>'+
       '<button type="button" class="btn btn-gold" data-ed="save-pdf"'+(edGuardando?" disabled":"")+'>Guardar y generar PDF</button></div></div>',
-    "wide","editor",{noBackdrop:true});
-  s.scrollTop=top;
+    "wide editor","editor",{noBackdrop:true});
+  const sc=s.querySelector(".ed-scroll");if(sc)sc.scrollTop=top;
   if(!s.dataset.bound){
     s.dataset.bound="1";
     s.addEventListener("input",edInput);
@@ -998,7 +1050,7 @@ function edInput(ev){
 function actualizarCalc(){
   const t=document.getElementById("edTotal");if(t)t.innerHTML=edTotalHTML();
   const cb=document.getElementById("calcBox");if(cb)cb.innerHTML=calcHTML();
-  document.querySelectorAll("[data-sub]").forEach(el=>{el.textContent=lineaCat(el.dataset.sub);});
+  document.querySelectorAll("[data-sub]").forEach(el=>{const p=el.dataset.sub.split(":");el.textContent=lineaCat(+p[0],p[1]);});
 }
 async function edClick(ev){
   const b=ev.target.closest("[data-ed]");if(!b)return;
@@ -1017,6 +1069,21 @@ async function edClick(ev){
   if(a==="add-serv"){E.servicios.push({descripcion:"",incluido:true});pintarEditor();const ins=document.querySelectorAll('#overlayRoot [data-k^="servicios."]');if(ins.length)ins[ins.length-1].focus();return;}
   if(a==="sug-serv"){E.servicios.push({descripcion:b.dataset.v,incluido:true});pintarEditor();return;}
   if(a==="tog-serv"){const x=E.servicios[+b.dataset.i];x.incluido=x.incluido===false;b.setAttribute("aria-pressed",String(x.incluido));b.textContent=x.incluido?"Incluido":"No incluido";return;}
+  if(a==="add-opcion"){E.valores.opciones.push(opcionVacia());pintarEditor();const ins=document.querySelectorAll('#overlayRoot [data-k$=".nombre"][data-k^="valores.opciones."]');if(ins.length){ins[ins.length-1].focus();ins[ins.length-1].scrollIntoView({block:"center"});}return;}
+  if(a==="dup-opcion"){const o=clone(E.valores.opciones[+b.dataset.i]);o.nombre=o.nombre?o.nombre+" (copia)":"";E.valores.opciones.splice(+b.dataset.i+1,0,o);pintarEditor();return;}
+  if(a==="del-opcion"){
+    if(E.valores.opciones.length<2)return;
+    const o=E.valores.opciones[+b.dataset.i];
+    if((o.nombre||o.precioAdulto!=null)&&!(await confirmar("¿Quitar la opción "+(+b.dataset.i+1)+"?","Se borrarán su nombre y sus precios.","Quitar",true)))return;
+    E.valores.opciones.splice(+b.dataset.i,1);delete E.valores.opcionElegida;edErrores=[];pintarEditor();return;
+  }
+  if(a==="usar-plantilla"){
+    const sel=document.getElementById("plSel");const pl=sel&&S.plantillas.find(x=>x.id===sel.value);
+    if(!pl){toast("Elige una plantilla de la lista.");return;}
+    if(tieneContenido(E)&&!(await confirmar("¿Usar la plantilla “"+pl.nombre+"”?","Se reemplazarán el destino, los vuelos, el hotel, los servicios, las condiciones y las opciones de precio que ya escribiste. El cliente y las fechas se conservan.","Usar plantilla")))return;
+    aplicarPlantilla(pl);pintarEditor();toast("Plantilla aplicada. Completa cliente, fechas, pasajeros y precios.");return;
+  }
+  if(a==="guardar-plantilla"){await dialogoGuardarPlantilla();return;}
   if(a==="add-cargo"){E.valores.cargos.push({concepto:"",valor:null});pintarEditor();return;}
   if(a==="add-desc"){E.valores.descuentos.push({concepto:"",valor:null});pintarEditor();return;}
   if(a==="del"){const l=getP(E,b.dataset.list);l.splice(+b.dataset.i,1);edErrores=[];pintarEditor();return;}
@@ -1026,6 +1093,220 @@ async function edClick(ev){
   if(a==="save"){await guardarCot("borrador");return;}
   if(a==="save-pdf"){await guardarCot("pdf");return;}
 }
+/* ----- Seguimientos de hoy ----- */
+const REGLAS_SEG=[
+  {k:"cotizacion",l:"Cotización sin respuesta",dias:2,ayudaDias:"días después de enviar la cotización",
+    texto:"Hola {nombre}, te saluda {asesor} de Diamond Travel. ¿Pudiste revisar la cotización {cotizacion} de tu viaje a {destino}? Si tienes alguna pregunta o quieres ajustar algo, con gusto te ayudo."},
+  {k:"contacto",l:"Cliente sin contacto",dias:7,ayudaDias:"días sin ningún contacto",
+    texto:"Hola {nombre}, te saluda {asesor} de Diamond Travel. ¿Sigues pensando en tu próximo viaje? Cuéntame qué tienes en mente y te ayudo a encontrar la mejor opción."},
+  {k:"viaje",l:"Viaje próximo",dias:5,ayudaDias:"días antes de la salida",
+    texto:"Hola {nombre}, ¡ya casi es tu viaje a {destino}! Sales el {fecha_ida}. Te recomendamos tener listos tus documentos de identidad y revisar tu equipaje. Cualquier duda, aquí estamos. Diamond Travel."},
+  {k:"regreso",l:"Regreso del viaje",dias:1,ayudaDias:"días después del regreso",
+    texto:"Hola {nombre}, ¡bienvenido(a) de regreso de {destino}! Esperamos que hayas disfrutado mucho tu viaje. Nos encantaría saber cómo te fue. Gracias por viajar con Diamond Travel."}
+];
+function cfgSeg(k){
+  const base=REGLAS_SEG.find(x=>x.k===k),c=((S.config.seguimientos||{})[k])||{};
+  return {activa:c.activa!==false,dias:Number.isInteger(c.dias)&&c.dias>=0?c.dias:base.dias,texto:typeof c.texto==="string"&&c.texto.trim()?c.texto:base.texto};
+}
+const soloFecha=ts=>{const d=new Date(ts);return isNaN(d)?"":d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());};
+function llenarMensaje(t,dat){
+  return t.replace(/\{(\w+)\}/g,(m,k)=>dat[k]!=null&&dat[k]!==""?String(dat[k]):(k==="destino"?"tu destino":""))
+    .replace(/[ \t]+([,.!?])/g,"$1").replace(/[ \t]{2,}/g," ").trim();
+}
+function datosMensaje(c,q,dias){
+  const v=(q&&q.viaje)||{};
+  return {nombre:String(c.nombre||"").trim().split(/\s+/)[0],nombre_completo:c.nombre,asesor:((S.perfil||{}).nombre||"").trim().split(/\s+/)[0]||"el equipo",
+    destino:v.destinos||c.destinos||"",cotizacion:q?D.codigo(q.numero):"",fecha_ida:D.fmtFecha(v.fechaIda||c.fechaViaje||""),fecha_regreso:D.fmtFecha(v.fechaRegreso||""),dias:dias!=null?dias:""};
+}
+function seguimientosPendientes(){
+  const hechos=new Set(S.segs.map(x=>x.clave));
+  const out=[],porCliente=new Set();
+  const add=(regla,c,q,clave,motivo,dias,orden)=>{
+    if(!c||c.etapa==="perdido"||hechos.has(clave))return;
+    const cfg=cfgSeg(regla);
+    out.push({regla:regla,cliente:c,cot:q||null,clave:clave,motivo:motivo,orden:orden,mensaje:llenarMensaje(cfg.texto,datosMensaje(c,q,dias))});
+    porCliente.add(c.id);
+  };
+  const cli=id=>S.clientes.find(x=>x.id===id);
+  const vivas=S.cotizaciones.filter(q=>q.clienteId&&cli(q.clienteId));
+  // 1. Cotización enviada sin respuesta
+  if(cfgSeg("cotizacion").activa)vivas.filter(q=>q.estado==="enviada").forEach(q=>{
+    const env=(q.historialEstados||[]).filter(h=>h.estado==="enviada").map(h=>h.fecha).sort().pop()||q.actualizadoEn;
+    const d=diasDesde(env);if(d==null||d<cfgSeg("cotizacion").dias)return;
+    add("cotizacion",cli(q.clienteId),q,"cotizacion:"+q.id+":"+soloFecha(env),"Cotización "+D.codigo(q.numero)+" enviada hace "+d+(d===1?" día":" días")+", sin respuesta",d,1);
+  });
+  // 2. Viaje próximo y 3. regreso (cotizaciones aceptadas; o clientes en venta cerrada con fecha de viaje)
+  const aceptadas=vivas.filter(q=>q.estado==="aceptada");
+  if(cfgSeg("viaje").activa){
+    const lim=cfgSeg("viaje").dias;
+    aceptadas.forEach(q=>{const f=(q.viaje||{}).fechaIda;const d=diasHasta(f);if(d==null||d<0||d>lim)return;
+      add("viaje",cli(q.clienteId),q,"viaje:"+q.id+":"+f,d===0?"Viaja hoy":"Viaja en "+d+(d===1?" día":" días")+" ("+D.fmtFecha(f)+")",d,0);});
+    S.clientes.filter(c=>c.etapa==="ganado"&&c.fechaViaje&&!aceptadas.some(q=>q.clienteId===c.id)).forEach(c=>{const d=diasHasta(c.fechaViaje);if(d==null||d<0||d>lim)return;
+      add("viaje",c,null,"viaje:c:"+c.id+":"+c.fechaViaje,d===0?"Viaja hoy":"Viaja en "+d+(d===1?" día":" días")+" ("+D.fmtFecha(c.fechaViaje)+")",d,0);});
+  }
+  if(cfgSeg("regreso").activa){
+    const min=Math.max(1,cfgSeg("regreso").dias);
+    aceptadas.forEach(q=>{const f=(q.viaje||{}).fechaRegreso;const d=f?-diasHasta(f):null;if(d==null||d<min||d>30)return;
+      add("regreso",cli(q.clienteId),q,"regreso:"+q.id+":"+f,"Regresó de "+((q.viaje||{}).destinos||"su viaje")+" hace "+d+(d===1?" día":" días"),d,3);});
+  }
+  // 4. Sin contacto (no se repite si ya tiene otro seguimiento hoy)
+  if(cfgSeg("contacto").activa){
+    const lim=cfgSeg("contacto").dias;
+    S.clientes.filter(c=>["nuevo","contactado","cotizado","negociacion"].includes(c.etapa)&&!porCliente.has(c.id)).forEach(c=>{
+      const base=c.ultimoContacto||c.creadoEn;const d=diasDesde(base);if(d==null||d<lim)return;
+      add("contacto",c,null,"contacto:"+c.id+":"+soloFecha(base),d+" días sin contacto · "+etapaLabel(c.etapa),d,2);
+    });
+  }
+  return out.sort((a,b)=>a.orden-b.orden||String(a.cliente.nombre).localeCompare(String(b.cliente.nombre),"es"));
+}
+function panelSeguimientos(){
+  if(S.faltaActualizacion)return "";
+  const l=seguimientosPendientes(),max=S.segTodos?l.length:6;
+  let h='<div class="panel panel-pad" id="segPanel"><div class="section-title"><h2>Seguimientos de hoy</h2><span class="pill '+(l.length?"est-vencida":"est-aceptada")+'">'+(l.length?l.length+" pendiente"+(l.length===1?"":"s"):"Al día")+'</span></div>';
+  if(!l.length)return h+'<p class="muted" style="margin:6px 0">No hay mensajes pendientes. El CRM te avisará aquí cuando toque escribirle a un cliente.</p></div>';
+  h+='<div class="seg-list">'+l.slice(0,max).map((x,i)=>{
+    const wa=x.cliente.telefono?D.enlaceWhatsApp(x.cliente.telefono,x.mensaje):null;
+    return '<div class="seg-item"><div class="seg-top"><div style="min-width:0"><b class="clickable" data-seg-ver="'+i+'" style="overflow-wrap:anywhere">'+esc(x.cliente.nombre)+'</b><div class="help">'+esc(x.motivo)+'</div></div><span class="pill st-cotizado">'+esc(REGLAS_SEG.find(r=>r.k===x.regla).l)+'</span></div>'+
+      '<p class="seg-msg">'+esc(x.mensaje)+'</p>'+
+      '<div class="actions">'+(wa?'<a class="btn btn-gold btn-sm" href="'+esc(wa)+'" target="_blank" rel="noopener" data-seg-env="'+i+'">Enviar por WhatsApp</a>':'<span class="help">Sin número de WhatsApp</span>')+
+      '<button type="button" class="btn btn-sm" data-seg-omit="'+i+'">Omitir</button><button type="button" class="btn btn-sm btn-ghost" data-seg-ver="'+i+'">Ver cliente</button></div></div>';
+  }).join("")+'</div>';
+  if(l.length>6)h+='<div style="margin-top:10px"><button type="button" class="btn btn-sm" data-seg-todos>'+(S.segTodos?"Ver menos":"Ver los "+l.length+" seguimientos")+'</button></div>';
+  return h+'</div>';
+}
+function bindSeguimientos(v){
+  const l=seguimientosPendientes();
+  v.querySelectorAll("[data-seg-env]").forEach(a=>a.addEventListener("click",()=>{
+    const x=l[+a.dataset.segEnv];if(!x)return;
+    // El enlace abre WhatsApp; aquí solo se registra (sin bloquear la apertura).
+    setTimeout(async()=>{
+      const ok=await guardar(()=>api.registrarSeguimiento({clienteId:x.cliente.id,cotizacionId:x.cot&&x.cot.id,regla:x.regla,clave:x.clave,resultado:"enviado",mensaje:x.mensaje}));
+      if(ok){
+        await api.agregarHistorial(x.cliente.id,"WhatsApp","Seguimiento enviado ("+REGLAS_SEG.find(r=>r.k===x.regla).l.toLowerCase()+"): "+x.mensaje);
+        await guardar(()=>api.actualizarCliente(x.cliente.id,{ultimoContacto:new Date().toISOString()}));
+        toast("Seguimiento registrado en el historial de "+x.cliente.nombre);
+      }
+    },0);
+  }));
+  v.querySelectorAll("[data-seg-omit]").forEach(b=>b.onclick=async()=>{
+    const x=l[+b.dataset.segOmit];if(!x)return;
+    if(await guardar(()=>api.registrarSeguimiento({clienteId:x.cliente.id,cotizacionId:x.cot&&x.cot.id,regla:x.regla,clave:x.clave,resultado:"omitido",mensaje:""})))toast("Seguimiento omitido");
+  });
+  v.querySelectorAll("[data-seg-ver]").forEach(b=>b.onclick=()=>{const x=l[+b.dataset.segVer];if(x)abrirDetalle(x.cliente.id);});
+  const t=v.querySelector("[data-seg-todos]");if(t)t.onclick=()=>{S.segTodos=!S.segTodos;render();};
+}
+function editorSeguimientosHTML(){
+  if(S.faltaActualizacion)return '<div class="panel panel-pad"><h2>Mensajes de seguimiento</h2><p class="muted" style="margin:0">Disponible después de ejecutar la actualización 2 de la base de datos.</p></div>';
+  return '<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:14px"><h2>Mensajes de seguimiento</h2>'+
+    '<p class="help" style="margin:0">El CRM arma cada día la lista "Seguimientos de hoy" con estas reglas. Puedes usar: {nombre}, {nombre_completo}, {asesor}, {destino}, {cotizacion}, {fecha_ida}, {fecha_regreso}, {dias}.</p>'+
+    REGLAS_SEG.map(r=>{const c=cfgSeg(r.k);return '<div class="opt-card"><div class="opt-head"><b>'+esc(r.l)+'</b><label class="check"><input type="checkbox" data-sg-act="'+r.k+'"'+(c.activa?" checked":"")+'> Activa</label></div>'+
+      '<div class="field"><label for="sgd_'+r.k+'">Cuándo (en '+esc(r.ayudaDias)+')</label><input class="input num" style="max-width:120px" id="sgd_'+r.k+'" type="number" min="0" max="365" inputmode="numeric" data-sg-dias="'+r.k+'" value="'+c.dias+'"></div>'+
+      '<div class="field"><label for="sgt_'+r.k+'">Mensaje</label><textarea class="input" id="sgt_'+r.k+'" maxlength="1500" data-sg-txt="'+r.k+'">'+esc(c.texto)+'</textarea></div>'+
+      '<div><button type="button" class="btn btn-sm btn-ghost" data-sg-reset="'+r.k+'">Restaurar texto original</button></div></div>';}).join("")+
+    '<div><button type="button" class="btn btn-gold" id="sgGuardar">Guardar mensajes de seguimiento</button></div></div>';
+}
+function bindEditorSeguimientos(v){
+  v.querySelectorAll("[data-sg-reset]").forEach(b=>b.onclick=()=>{const r=REGLAS_SEG.find(x=>x.k===b.dataset.sgReset);const t=v.querySelector('[data-sg-txt="'+r.k+'"]');if(t)t.value=r.texto;});
+  const g=v.querySelector("#sgGuardar");
+  if(g)g.onclick=async()=>{
+    const val={};
+    for(const r of REGLAS_SEG){
+      const d=parseInt(v.querySelector('[data-sg-dias="'+r.k+'"]').value,10);
+      const t=v.querySelector('[data-sg-txt="'+r.k+'"]').value.trim();
+      if(!Number.isInteger(d)||d<0||d>365){toast("Revisa los días de “"+r.l+"”: debe ser un número entre 0 y 365.");return;}
+      if(!t){toast("Escribe el mensaje de “"+r.l+"”.");return;}
+      val[r.k]={activa:v.querySelector('[data-sg-act="'+r.k+'"]').checked,dias:d,texto:t};
+    }
+    if(await guardar(()=>api.guardarConfig("seguimientos",val))){S.config.seguimientos=val;toast("Mensajes de seguimiento guardados");render();}
+  };
+}
+
+/* ----- Plantillas de cotización ----- */
+const SIN_PLANTILLA_VIAJE=["fechaIda","fechaRegreso","adultos","ninos","edadesNinos","infantes"];
+function tieneContenido(e){
+  const v=e.viaje||{};
+  return !!(String(v.destinos||"").trim()||String(v.hotel||"").trim()||(e.servicios||[]).some(x=>String(x.descripcion||"").trim())||(e.valores.opciones||[]).some(o=>String(o.nombre||"").trim()));
+}
+function datosDePlantilla(e){
+  const v=clone(e.viaje||{});SIN_PLANTILLA_VIAJE.forEach(k=>delete v[k]);
+  v.tramos=(v.tramos||[]).filter(t=>["ruta","vuelo","salida","llegada"].some(k=>String(t[k]||"").trim())).map(t=>Object.assign({},t,{fecha:""}));
+  const c=clone(e.condiciones||{});delete c.fechaLimitePago;
+  const val=e.valores||{};
+  return {viaje:v,servicios:clone((e.servicios||[]).filter(x=>String(x.descripcion||"").trim())),observacionesPaquete:e.observacionesPaquete||"",condiciones:c,
+    valores:{moneda:val.moneda||"COP",opciones:(val.opciones||[]).map(o=>({nombre:o.nombre||"",detalle:o.detalle||"",precioAdulto:null,precioNino:null,precioInfante:null})),
+      cargos:clone((val.cargos||[]).filter(x=>String(x.concepto||"").trim()||typeof x.valor==="number")),descuentos:clone((val.descuentos||[]).filter(x=>String(x.concepto||"").trim()||typeof x.valor==="number")),mostrarPorPersona:!!val.mostrarPorPersona}};
+}
+function aplicarPlantilla(pl){
+  const d=pl.datos||{},base=cotVacia();
+  const conservar={};SIN_PLANTILLA_VIAJE.forEach(k=>{conservar[k]=E.viaje[k];});
+  E.viaje=Object.assign(clone(base.viaje),clone(d.viaje||{}),conservar);
+  if(!Array.isArray(E.viaje.tramos))E.viaje.tramos=[];
+  E.servicios=clone(d.servicios||[]);
+  E.observacionesPaquete=d.observacionesPaquete||"";
+  E.condiciones=Object.assign(clone(base.condiciones),clone(d.condiciones||{}),{fechaLimitePago:E.condiciones.fechaLimitePago||""});
+  const dv=d.valores||{};
+  E.valores=Object.assign({},E.valores,{moneda:dv.moneda||"COP",opciones:(dv.opciones&&dv.opciones.length?dv.opciones:[opcionVacia()]).map(o=>Object.assign(opcionVacia(),{nombre:o.nombre||"",detalle:o.detalle||""})),
+    cargos:clone(dv.cargos||[]),descuentos:clone(dv.descuentos||[]),mostrarPorPersona:!!dv.mostrarPorPersona});
+  delete E.valores.opcionElegida;
+  E.plantillaId=pl.id;
+  const n=D.diasEntre(E.viaje.fechaIda,E.viaje.fechaRegreso);
+  if(n!=null&&n>=0)E.viaje.noches=n;
+  edNochesManual=false;
+}
+function plantillaSelectorHTML(){
+  if(S.faltaActualizacion)return "";
+  if(!S.plantillas.length)return '<div class="banner info" style="font-size:13.5px">Consejo: cuando termines una cotización de un destino frecuente, toca <b>Guardar como plantilla</b> (arriba). La próxima vez la cargas con un toque.</div>';
+  const lista=S.plantillas.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
+  return '<div class="tpl-box"><label for="plSel" class="label">Empezar desde una plantilla</label><div class="tpl-row">'+
+    '<select class="input" id="plSel"><option value="">Elige una plantilla…</option>'+lista.map(p=>'<option value="'+esc(p.id)+'"'+(E.plantillaId===p.id?" selected":"")+'>'+esc(p.nombre)+'</option>').join("")+'</select>'+
+    '<button type="button" class="btn btn-gold" data-ed="usar-plantilla">Usar</button></div>'+
+    '<span class="help">Llena destino, vuelos, hotel, servicios, condiciones y nombres de las opciones. Tú completas cliente, fechas, pasajeros y precios.</span></div>';
+}
+async function dialogoGuardarPlantilla(){
+  if(S.faltaActualizacion){toast("Falta ejecutar la actualización 2 de la base de datos para usar plantillas.");return;}
+  const datos=datosDePlantilla(E);
+  if(!String(datos.viaje.destinos||"").trim()&&!datos.servicios.length){toast("Escribe al menos el destino o los servicios antes de guardar la plantilla.");return;}
+  const actual=E.plantillaId&&S.plantillas.find(x=>x.id===E.plantillaId);
+  const sugerido=actual?actual.nombre:[E.viaje.destinos,E.viaje.noches?E.viaje.noches+" noches":""].filter(Boolean).join(" ");
+  const s=openOverlay('<div class="sheet-head"><h2>Guardar como plantilla</h2></div><div class="sheet-body">'+
+    '<p class="muted" style="margin:0">Se guardan el destino, los vuelos (sin fechas), el hotel, los servicios, las observaciones, las condiciones, los cargos y los nombres de las opciones de precio. <b>No</b> se guardan el cliente, las fechas, los pasajeros ni los precios por pasajero.</p>'+
+    '<div class="field"><label for="plNom">Nombre de la plantilla</label><input class="input" id="plNom" maxlength="120" value="'+esc(sugerido)+'" placeholder="Ej.: San Andrés 4 noches"></div>'+
+    (actual?'<label class="check"><input type="radio" name="plModo" value="actualizar" checked> Actualizar la plantilla “'+esc(actual.nombre)+'”</label><label class="check"><input type="radio" name="plModo" value="nueva"> Guardar como plantilla nueva</label>':'')+
+    '<div class="err" id="plErr" role="alert"></div>'+
+    '<div class="sheet-foot"><button class="btn" id="plNo">Cancelar</button><button class="btn btn-gold" id="plSi">Guardar plantilla</button></div></div>',"confirm","plantilla");
+  s.querySelector("#plNo").onclick=()=>closeOverlay("plantilla");
+  s.querySelector("#plSi").onclick=async()=>{
+    const nombre=s.querySelector("#plNom").value.trim();const err=s.querySelector("#plErr");
+    if(!nombre){err.textContent="Escribe un nombre para la plantilla.";return;}
+    const modo=actual&&s.querySelector('input[name="plModo"]:checked').value==="actualizar"?"actualizar":"nueva";
+    const otra=S.plantillas.find(p=>p.nombre.trim().toLowerCase()===nombre.toLowerCase()&&(!actual||modo==="nueva"||p.id!==actual.id));
+    if(otra){err.textContent="Ya existe una plantilla con ese nombre. Elige otro nombre o actualiza la existente desde la cotización que la usa.";return;}
+    s.querySelector("#plSi").disabled=true;
+    const res=modo==="actualizar"?await guardar(()=>api.actualizarPlantilla(actual.id,{nombre:nombre,datos:datos})):await guardar(()=>api.crearPlantilla(nombre,datos));
+    s.querySelector("#plSi").disabled=false;
+    if(res){E.plantillaId=res.id;closeOverlay("plantilla");toast(modo==="actualizar"?"Plantilla actualizada":"Plantilla guardada: "+nombre);if(edTab==="cliente")pintarEditor();}
+  };
+  setTimeout(()=>{const n=s.querySelector("#plNom");if(n){n.focus();n.select();}},50);
+}
+function abrirPlantillas(){
+  const lista=S.plantillas.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
+  const puedeBorrar=p=>S.isAdmin||p.creadoPor===S.meId;
+  const s=openOverlay('<div class="sheet-head"><h2>Plantillas de cotización</h2><button class="btn btn-ghost btn-sm" id="tpClose">Cerrar</button></div><div class="sheet-body">'+
+    (S.faltaActualizacion?'<div class="banner warn">Para usar plantillas falta ejecutar la actualización 2 de la base de datos en Supabase.</div>':
+    (lista.length?'<div class="panel">'+lista.map(p=>{const v=(p.datos||{}).viaje||{},ops=((p.datos||{}).valores||{}).opciones||[];
+      return '<div class="eq-row"><div class="eq-who"><b>'+esc(p.nombre)+'</b><span class="help">'+esc([v.destinos,v.hotel,ops.length>1?ops.length+" opciones de precio":""].filter(Boolean).join(" · ")||"Sin destino")+'</span><span class="help">Actualizada '+fmtFechaTs(p.actualizadoEn)+'</span></div>'+
+        '<div class="eq-actions"><button class="btn btn-sm btn-gold" data-tp-usar="'+esc(p.id)+'">Usar</button>'+(puedeBorrar(p)?'<button class="btn btn-sm" data-tp-del="'+esc(p.id)+'">Eliminar</button>':'')+'</div></div>';}).join("")+'</div>':
+      '<div class="panel empty"><p class="muted">Aún no hay plantillas. Abre o crea una cotización y toca <b>Guardar como plantilla</b>.</p></div>'))+
+    '<p class="help" style="margin:0">Para editar una plantilla: tócale <b>Usar</b>, haz los cambios y vuelve a tocar <b>Guardar como plantilla → Actualizar</b>.</p></div>',"","plantillas");
+  s.querySelector("#tpClose").onclick=()=>closeOverlay("plantillas");
+  s.querySelectorAll("[data-tp-usar]").forEach(b=>b.onclick=()=>{closeOverlay("plantillas");abrirEditor(null,{plantillaId:b.dataset.tpUsar});});
+  s.querySelectorAll("[data-tp-del]").forEach(b=>b.onclick=async()=>{
+    const p=S.plantillas.find(x=>x.id===b.dataset.tpDel);if(!p)return;
+    if(!(await confirmar("¿Eliminar la plantilla “"+p.nombre+"”?","Las cotizaciones hechas con ella no cambian.","Eliminar",true)))return;
+    if(await guardar(()=>api.borrarPlantilla(p.id))){toast("Plantilla eliminada");abrirPlantillas();}
+  });
+}
+
 const CAMPOS_COND=["politicaAnticipo","politicaCancelacion","equipaje","disponibilidad","noIncluidos","adicionales"];
 async function cargarCondiciones(){
   await cargarConfig();
@@ -1049,6 +1330,8 @@ function cuerpoCot(e){
   limpiarNum(b);
   b.servicios=(b.servicios||[]).filter(x=>String(x.descripcion||"").trim());
   b.viaje.tramos=(b.viaje.tramos||[]).filter(t=>["fecha","ruta","vuelo","salida","llegada"].some(k=>String(t[k]||"").trim()));
+  delete b.valores.precioAdulto;delete b.valores.precioNino;delete b.valores.precioInfante;
+  delete b.plantillaId;
   b.valores.cargos=(b.valores.cargos||[]).filter(x=>String(x.concepto||"").trim()||typeof x.valor==="number");
   b.valores.descuentos=(b.valores.descuentos||[]).filter(x=>String(x.concepto||"").trim()||typeof x.valor==="number");
   return b;
@@ -1140,7 +1423,7 @@ async function exportarJSON(){
   try{hist=await todas("historial","fecha");}catch(e){toast(explicarError(e));return;}
   const porCliente={};hist.forEach(h=>{(porCliente[h.cliente_id]=porCliente[h.cliente_id]||[]).push({id:h.id,fecha:h.fecha,tipo:h.tipo,texto:h.texto,autor:h.autor});});
   const data={sistema:"Diamond Travel CRM",version:3,formato:"web",exportadoEn:new Date().toISOString(),exportadoPor:(S.perfil||{}).email||"",
-    clientes:S.clientes.map(c=>Object.assign({},c,{historial:porCliente[c.id]||[]})),cotizaciones:S.cotizaciones.map(q=>Object.assign({},q))};
+    clientes:S.clientes.map(c=>Object.assign({},c,{historial:porCliente[c.id]||[]})),cotizaciones:S.cotizaciones.map(q=>Object.assign({},q)),plantillas:S.plantillas.map(p=>Object.assign({},p))};
   descargar("diamond-travel-respaldo-"+sello()+".json",JSON.stringify(data,null,2));
 }
 const celdaCSV=v=>{v=v==null?"":String(v);return /[";\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
@@ -1218,6 +1501,11 @@ function importar(input){
       const r=await S.sb.from("cotizaciones").upsert(qfilas.slice(i,i+200),{onConflict:"id"});
       if(r.error){msg.innerHTML='<p class="err">Se detuvo al restaurar cotizaciones: '+esc(explicarError(r.error))+'</p>';return;}
     }
+    const ps=(Array.isArray(data.plantillas)?data.plantillas:[]).filter(p=>p&&esUUID(p.id)&&typeof p.nombre==="string"&&p.nombre.trim());
+    if(ps.length&&!S.faltaActualizacion){
+      const r=await S.sb.from("plantillas").upsert(ps.map(p=>({id:p.id,nombre:p.nombre,datos:p.datos||{}})),{onConflict:"id"});
+      if(r.error)console.error(r.error);
+    }
     try{await S.sb.rpc("ajustar_consecutivo");}catch(_){}
     await recargarTodo();
     msg.innerHTML='<p class="ok-msg">Listo: '+cs.length+' clientes y '+qs.length+' cotizaciones restaurados. Compara estos números con los del respaldo.</p>';
@@ -1287,10 +1575,19 @@ const api={
   },
   async actualizarCotizacion(id,o){
     const f={};if(o.estado)f.estado=o.estado;if(o.historialEstados)f.historial_estados=o.historialEstados;
+    if(o.cotizacion){const fc=aFilaCot(o.cotizacion);f.datos=fc.datos;f.total=fc.total;}
     const r=await S.sb.from("cotizaciones").update(f).eq("id",id).select();if(r.error)return r;if(!r.data.length)return {error:sinPermiso};
     const c=deFilaCot(r.data[0]);ponerLocal("cotizaciones",c);return {data:c};
   },
   async borrarCotizacion(id){const r=await S.sb.from("cotizaciones").delete().eq("id",id).select("id");if(r.error)return r;if(!r.data.length)return {error:sinPermiso};quitarLocal("cotizaciones",id);return {data:true};},
+  async crearPlantilla(nombre,datos){const r=await S.sb.from("plantillas").insert({nombre:nombre,datos:datos,creado_por:S.meId}).select().single();if(r.error)return r;const p=deFilaPlantilla(r.data);ponerPlantilla(p);return {data:p};},
+  async actualizarPlantilla(id,o){const r=await S.sb.from("plantillas").update({nombre:o.nombre,datos:o.datos}).eq("id",id).select();if(r.error)return r;if(!r.data.length)return {error:sinPermiso};const p=deFilaPlantilla(r.data[0]);ponerPlantilla(p);return {data:p};},
+  async borrarPlantilla(id){const r=await S.sb.from("plantillas").delete().eq("id",id).select("id");if(r.error)return r;if(!r.data.length)return {error:sinPermiso};S.plantillas=S.plantillas.filter(x=>x.id!==id);refrescarTodo();return {data:true};},
+  async registrarSeguimiento(o){
+    const r=await S.sb.from("seguimientos").insert({cliente_id:o.clienteId,cotizacion_id:o.cotizacionId||null,regla:o.regla,clave:o.clave,resultado:o.resultado,mensaje:String(o.mensaje||"").slice(0,4000),autor:S.meId}).select().single();
+    if(r.error){if(r.error.code==="23505"){S.segs.push({clave:o.clave});refrescarTodo();return {data:true};}return r;}
+    S.segs.unshift(deFilaSeg(r.data));refrescarTodo();return {data:true};
+  },
   async guardarConfig(clave,valor){return await S.sb.from("config").upsert({clave:clave,valor:valor,actualizado_por:S.meId,actualizado_en:new Date().toISOString()},{onConflict:"clave"});},
   async buscarDuplicado(tel,email){
     if(String(tel||"").replace(/\D/g,"").length<7&&!String(email||"").trim())return null;
@@ -1311,6 +1608,14 @@ async function todas(tabla,orden){
     desde+=N;
   }
   return out;
+}
+function deFilaPlantilla(r){return {id:r.id,nombre:r.nombre,datos:r.datos||{},creadoPor:r.creado_por,creadoEn:r.creado_en,actualizadoEn:r.actualizado_en};}
+function deFilaSeg(r){return {id:r.id,clienteId:r.cliente_id,cotizacionId:r.cotizacion_id,regla:r.regla,clave:r.clave,resultado:r.resultado,fecha:r.fecha,autor:r.autor};}
+function ponerPlantilla(p){const i=S.plantillas.findIndex(x=>x.id===p.id);if(i>=0)S.plantillas[i]=p;else S.plantillas.push(p);refrescarTodo();}
+const tablaFalta=e=>e&&(e.code==="42P01"||e.code==="PGRST205"||/does not exist|Could not find the table/i.test(String(e.message||"")));
+async function cargarExtras(){ // tablas de la actualización 2: si aún no existen, el resto del CRM sigue funcionando
+  try{S.plantillas=(await todas("plantillas","actualizado_en")).map(deFilaPlantilla);S.segs=(await todas("seguimientos","fecha")).map(deFilaSeg);S.faltaActualizacion=false;}
+  catch(e){if(tablaFalta(e)){S.faltaActualizacion=true;S.plantillas=[];S.segs=[];}else console.error(e);}
 }
 async function cargarClientes(){S.clientes=(await todas("clientes","actualizado_en")).map(deFilaCliente);S.ready=true;}
 async function cargarCotizaciones(){S.cotizaciones=(await todas("cotizaciones","numero")).map(deFilaCot);S.cotReady=true;}
@@ -1335,7 +1640,7 @@ async function cargarHistorial(id){
 async function recargarTodo(){
   try{await cargarEquipo();}catch(e){console.error(e);}
   if(!S.perfil||!S.perfil.activo){mostrarAuth("pendiente");return;}
-  try{await Promise.all([cargarClientes(),cargarCotizaciones(),cargarConfig()]);S.loadError=null;}
+  try{await Promise.all([cargarClientes(),cargarCotizaciones(),cargarConfig(),cargarExtras()]);S.loadError=null;}
   catch(e){console.error(e);S.loadError=e;S.ready=true;S.cotReady=true;}
   Object.keys(S.hist).forEach(id=>{if(id===detalleId)cargarHistorial(id);else delete S.hist[id];});
   refrescarTodo();
@@ -1363,6 +1668,8 @@ function suscribir(){
     .on("postgres_changes",{event:"*",schema:"public",table:"clientes"},()=>luego("c",async()=>{try{await cargarClientes();refrescarTodo();}catch(e){console.error(e);}}))
     .on("postgres_changes",{event:"*",schema:"public",table:"cotizaciones"},()=>luego("q",async()=>{try{await cargarCotizaciones();refrescarTodo();}catch(e){console.error(e);}}))
     .on("postgres_changes",{event:"*",schema:"public",table:"historial"},p=>{const id=(p.new&&p.new.cliente_id)||(p.old&&p.old.cliente_id);if(id&&S.hist[id])luego("h"+id,()=>cargarHistorial(id));})
+    .on("postgres_changes",{event:"*",schema:"public",table:"plantillas"},()=>luego("pl",async()=>{await cargarExtras();refrescarTodo();}))
+    .on("postgres_changes",{event:"*",schema:"public",table:"seguimientos"},()=>luego("sg",async()=>{await cargarExtras();refrescarTodo();}))
     .on("postgres_changes",{event:"*",schema:"public",table:"perfiles"},()=>luego("p",async()=>{try{await cargarEquipo();if(!S.perfil||!S.perfil.activo){mostrarAuth("pendiente");return;}refrescarTodo();}catch(e){console.error(e);}}))
     .subscribe();
 }
@@ -1477,7 +1784,7 @@ async function entrar(session){
   const h=(location.hash||"").replace("#","");
   if(VIEWS.some(v=>v.k===h&&(!v.admin||S.isAdmin)))S.view=h;
   render();
-  try{await Promise.all([cargarClientes(),cargarCotizaciones(),cargarConfig()]);S.loadError=null;}
+  try{await Promise.all([cargarClientes(),cargarCotizaciones(),cargarConfig(),cargarExtras()]);S.loadError=null;}
   catch(e){console.error(e);S.loadError=e;S.ready=true;S.cotReady=true;}
   render();
   suscribir();
@@ -1535,6 +1842,7 @@ function viewEquipo(){
   h+='<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Qué ven los asesores</h2>'+
     '<label class="check"><input type="checkbox" id="eqVer"'+(ver?" checked":"")+'> Los asesores pueden ver todos los clientes y cotizaciones</label>'+
     '<p class="help" style="margin:0">Desmarcado (recomendado): cada asesor ve solo sus clientes y cotizaciones. El administrador siempre ve todo. Solo el administrador puede borrar registros.</p></div>';
+  h+=editorSeguimientosHTML();
   h+='<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Agregar a un asesor</h2><ol class="steps">'+
     '<li>Entra a <b>supabase.com</b>, abre el proyecto <b>diamond-travel-crm</b> y ve a <b>Authentication → Users</b>.</li>'+
     '<li>Toca <b>Add user → Create new user</b>, escribe su correo y una contraseña temporal, y marca <b>Auto Confirm User</b>.</li>'+
@@ -1544,6 +1852,7 @@ function viewEquipo(){
   return h;
 }
 function bindEquipo(v){
+  bindEditorSeguimientos(v);
   v.querySelectorAll("[data-eq-rol]").forEach(sel=>sel.onchange=async()=>{
     const id=sel.dataset.eqRol;
     if(id===S.meId&&sel.value!=="admin"&&!(await confirmar("¿Quitarte el rol de administrador?","Perderás el acceso a Equipo y a las funciones de administrador.","Sí, cambiar mi rol",true))){render();return;}

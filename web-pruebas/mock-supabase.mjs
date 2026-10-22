@@ -17,10 +17,12 @@ function cargarDB() {
       { id: users[0].id, email: users[0].email, nombre: "", rol: "admin", activo: true, creado_en: now() },
       { id: users[1].id, email: users[1].email, nombre: "Asesora Uno", rol: "asesor", activo: false, creado_en: now() }
     ],
-    config: [], clientes: [], historial: [], cotizaciones: []
+    config: [], clientes: [], historial: [], cotizaciones: [], seguimientos: [], plantillas: []
   };
 }
 let DB = cargarDB();
+if (!DB.seguimientos) DB.seguimientos = []; if (!DB.plantillas) DB.plantillas = [];
+const SIN_TABLAS = (() => { try { return localStorage.getItem("mock-sin-tablas") === "1"; } catch (_) { return false; } })();
 const guardarDB = () => { try { localStorage.setItem(K, JSON.stringify(DB)); } catch (_) {} };
 window.__mockDB = () => DB;
 
@@ -36,21 +38,26 @@ const visible = {
   config: () => activo(),
   clientes: r => activo() && (veTodo() || r.asesor_id === uid()),
   cotizaciones: r => activo() && (veTodo() || r.asesor_id === uid()),
-  historial: r => { const c = DB.clientes.find(x => x.id === r.cliente_id); return !!c && visible.clientes(c); }
+  historial: r => { const c = DB.clientes.find(x => x.id === r.cliente_id); return !!c && visible.clientes(c); },
+  seguimientos: r => { const c = DB.clientes.find(x => x.id === r.cliente_id); return !!c && visible.clientes(c); },
+  plantillas: () => activo()
 };
 const puedeInsertar = {
   perfiles: () => false, config: () => admin(),
   clientes: r => activo() && (admin() || r.asesor_id === uid()),
   cotizaciones: r => activo() && (admin() || r.asesor_id === uid()),
-  historial: r => activo() && (r.autor === uid() || admin()) && visible.historial(r)
+  historial: r => activo() && (r.autor === uid() || admin()) && visible.historial(r),
+  seguimientos: r => activo() && r.autor === uid() && visible.seguimientos(r),
+  plantillas: r => activo() && r.creado_por === uid()
 };
 const puedeEditar = {
   perfiles: (r) => r.id === uid() || admin(), config: () => admin(),
   clientes: (r, n) => visible.clientes(r) && (admin() || n.asesor_id === uid()),
   cotizaciones: (r, n) => visible.cotizaciones(r) && (admin() || n.asesor_id === uid()),
-  historial: () => false
+  historial: () => false, seguimientos: () => false, plantillas: () => activo()
 };
-const puedeBorrar = { perfiles: () => false, config: () => admin(), clientes: () => admin(), cotizaciones: () => admin(), historial: () => false };
+const puedeBorrar = { perfiles: () => false, config: () => admin(), clientes: () => admin(), cotizaciones: () => admin(), historial: () => false,
+  seguimientos: () => admin(), plantillas: r => admin() || (activo() && r.creado_por === uid()) };
 const err = (code, message) => ({ data: null, error: { code, message } });
 const PK = { config: "clave" };
 
@@ -73,6 +80,14 @@ function defaults(t, r) {
     if (!o.estado) o.estado = "borrador"; if (!o.datos) o.datos = {}; if (!o.historial_estados) o.historial_estados = [];
     if (DB.cotizaciones.some(x => x.numero === o.numero && x.id !== o.id)) return { error: { code: "23505", message: "numero duplicado" } };
   }
+  if (t === "seguimientos") {
+    o.fecha = now(); if (!admin()) o.autor = uid();
+    if (DB.seguimientos.some(x => x.clave === o.clave)) return { error: { code: "23505", message: "duplicate key value violates unique constraint" } };
+  }
+  if (t === "plantillas") {
+    o.creado_en = now(); o.actualizado_en = now(); if (!admin() || !o.creado_por) o.creado_por = uid();
+    if (DB.plantillas.some(x => x.nombre.trim().toLowerCase() === String(o.nombre).trim().toLowerCase())) return { error: { code: "23505", message: "duplicate key" } };
+  }
   if (t === "historial") { if (!o.fecha) o.fecha = now(); if (o.autor === undefined) o.autor = uid(); if (!o.tipo) o.tipo = "Nota"; }
   return { row: o };
 }
@@ -92,6 +107,7 @@ class Q {
   then(res, rej) { return Promise.resolve().then(() => this.run()).then(res, rej); }
   run() {
     if (!uid()) return err("42501", "permission denied (sin sesión)");
+    if (SIN_TABLAS && (this.t === "seguimientos" || this.t === "plantillas")) return err("PGRST205", "Could not find the table 'public." + this.t + "' in the schema cache");
     const T = DB[this.t], vis = visible[this.t];
     let out;
     if (this.op === "select") {
@@ -124,7 +140,8 @@ class Q {
         if (this.t === "perfiles" && r.rol === "admin" && r.activo && (n.rol !== "admin" || !n.activo) && !DB.perfiles.some(p => p.id !== r.id && p.rol === "admin" && p.activo))
           return err("P0001", "Debe quedar al menos un administrador activo.");
         if (!puedeEditar[this.t](r, n)) { if (this.t === "perfiles") continue; return err("42501", "new row violates row-level security policy"); }
-        if (this.t === "clientes" || this.t === "cotizaciones") n.actualizado_en = now();
+        if (this.t === "clientes" || this.t === "cotizaciones" || this.t === "plantillas") n.actualizado_en = now();
+        if (this.t === "plantillas") { n.creado_por = r.creado_por; n.creado_en = r.creado_en; }
         Object.assign(r, n); out.push(r);
       }
     } else if (this.op === "delete") {
