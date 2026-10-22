@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="es-CO">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Cotiza tu viaje · Diamond Travel</title>
+<meta name="description" content="Cuéntanos a dónde quieres viajar y Diamond Travel te envía tu cotización por WhatsApp. Agencia de viajes en Cúcuta.">
+<meta name="theme-color" content="#0E1F3D">
+<meta property="og:title" content="Cotiza tu viaje con Diamond Travel">
+<meta property="og:description" content="Llena este formulario y te enviamos tu cotización por WhatsApp.">
+<meta property="og:image" content="/assets/icon-512.png">
+<link rel="icon" type="image/png" href="/assets/icon-192.png">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500;6..96,600&family=Instrument+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/css/cotiza.css">
+</head>
+<body>
+<header class="hero">
+  <img class="logo" src="/assets/logo.png" alt="Diamond Travel" width="150" height="122">
+  <h1>Cotiza tu viaje</h1>
+  <p>Cuéntanos a dónde quieres ir y te enviamos tu cotización por WhatsApp.</p>
+</header>
+
+<main class="wrap">
+  <form id="fCotiza" class="card" novalidate>
+    <div class="errbox" id="errBox" role="alert" hidden></div>
+
+    <fieldset>
+      <legend>Tus datos</legend>
+      <div class="field">
+        <label for="nombre">Nombre completo <span class="req" aria-hidden="true">*</span></label>
+        <input class="input" id="nombre" name="nombre" autocomplete="name" maxlength="120" required>
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label for="telefono">WhatsApp <span class="req" aria-hidden="true">*</span></label>
+          <input class="input" id="telefono" name="telefono" type="tel" inputmode="tel" autocomplete="tel" maxlength="30" placeholder="Ej.: 300 123 4567" required>
+        </div>
+        <div class="field">
+          <label for="email">Correo <span class="opt">(opcional)</span></label>
+          <input class="input" id="email" name="email" type="email" inputmode="email" autocomplete="email" maxlength="160">
+        </div>
+      </div>
+      <div class="field">
+        <label for="ciudad">¿Desde qué ciudad viajas? <span class="opt">(opcional)</span></label>
+        <input class="input" id="ciudad" name="ciudad" autocomplete="address-level2" maxlength="120" placeholder="Ej.: Cúcuta">
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Tu viaje</legend>
+      <div class="field">
+        <label for="destino">¿A dónde quieres viajar? <span class="req" aria-hidden="true">*</span></label>
+        <input class="input" id="destino" name="destino" list="destinos" maxlength="200" placeholder="Ej.: San Andrés" required>
+        <datalist id="destinos">
+          <option value="San Andrés"><option value="Cartagena"><option value="Santa Marta"><option value="Eje Cafetero">
+          <option value="Medellín"><option value="Bogotá"><option value="Cancún y Riviera Maya"><option value="Punta Cana">
+          <option value="Aruba"><option value="Curazao"><option value="Panamá"><option value="Europa">
+        </datalist>
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label for="fechaIda">Fecha de ida <span class="opt">(aproximada)</span></label>
+          <input class="input" id="fechaIda" name="fechaIda" type="date">
+        </div>
+        <div class="field">
+          <label for="fechaRegreso">Fecha de regreso <span class="opt">(aproximada)</span></label>
+          <input class="input" id="fechaRegreso" name="fechaRegreso" type="date">
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="fechasFlexibles" name="fechasFlexibles"> Mis fechas son flexibles</label>
+      <div class="grid2">
+        <div class="field">
+          <label for="adultos">Adultos <span class="req" aria-hidden="true">*</span></label>
+          <div class="stepper">
+            <button type="button" class="step" data-step="adultos:-1" aria-label="Un adulto menos">−</button>
+            <input class="input num" id="adultos" name="adultos" type="number" inputmode="numeric" min="1" max="99" value="2" required>
+            <button type="button" class="step" data-step="adultos:1" aria-label="Un adulto más">+</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="ninos">Niños <span class="opt">(2 a 11 años)</span></label>
+          <div class="stepper">
+            <button type="button" class="step" data-step="ninos:-1" aria-label="Un niño menos">−</button>
+            <input class="input num" id="ninos" name="ninos" type="number" inputmode="numeric" min="0" max="99" value="0">
+            <button type="button" class="step" data-step="ninos:1" aria-label="Un niño más">+</button>
+          </div>
+        </div>
+      </div>
+      <div class="field" id="edadesBox" hidden>
+        <label for="edadesNinos">Edades de los niños</label>
+        <input class="input" id="edadesNinos" name="edadesNinos" maxlength="60" placeholder="Ej.: 5, 8">
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Detalles</legend>
+      <div class="field">
+        <label for="presupuesto">Presupuesto aproximado en pesos <span class="opt">(opcional)</span></label>
+        <input class="input num" id="presupuesto" name="presupuesto" inputmode="numeric" maxlength="16" placeholder="Ej.: 5.000.000">
+      </div>
+      <div class="field">
+        <label for="comoNosConocio">¿Cómo nos conociste? <span class="opt">(opcional)</span></label>
+        <select class="input" id="comoNosConocio" name="comoNosConocio">
+          <option value="">Elige una opción</option>
+          <option>Instagram</option><option>Facebook</option><option>TikTok</option><option>WhatsApp</option>
+          <option>Recomendación</option><option>Google</option><option>Otro</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="comentarios">¿Algo más que debamos saber? <span class="opt">(opcional)</span></label>
+        <textarea class="input" id="comentarios" name="comentarios" maxlength="1000" rows="3" placeholder="Ej.: hotel todo incluido, celebramos un aniversario, vuelo directo…"></textarea>
+      </div>
+    </fieldset>
+
+    <!-- Campo trampa para robots: las personas no lo ven ni lo llenan. -->
+    <div class="trampa" aria-hidden="true">
+      <label for="web">No llenar</label><input id="web" name="web" tabindex="-1" autocomplete="off">
+    </div>
+
+    <div class="consent">
+      <label class="check"><input type="checkbox" id="autorizaDatos" name="autorizaDatos" required>
+        <span id="textoAutorizacion">Autorizo a Diamond Travel a usar mis datos personales para responder esta solicitud y enviarme cotizaciones e información de viajes por WhatsApp, correo o llamada, conforme a la Ley 1581 de 2012.</span></label>
+      <details>
+        <summary>¿Cómo usamos tus datos?</summary>
+        <p><b>Responsable:</b> Diamond Travel, Calle 17 OE-48, barrio Caobos, Cúcuta, Norte de Santander. Correo: reservasdiamondtravel@gmail.com · WhatsApp 305 205 1183.</p>
+        <p><b>Para qué:</b> responder tu solicitud, preparar y enviarte cotizaciones, hacer seguimiento a tu viaje y contarte promociones de viajes.</p>
+        <p><b>Tus derechos:</b> puedes conocer, actualizar y corregir tus datos, pedir que los eliminemos o revocar esta autorización en cualquier momento escribiendo a reservasdiamondtravel@gmail.com.</p>
+      </details>
+    </div>
+
+    <button class="btn btn-gold btn-block" id="enviar" type="submit">Enviar solicitud</button>
+    <p class="note">Te responderemos por WhatsApp lo antes posible.</p>
+  </form>
+
+  <section class="card done" id="gracias" hidden tabindex="-1" aria-live="polite">
+    <div class="check-big" aria-hidden="true">✓</div>
+    <h2 id="gTitulo">¡Gracias! Recibimos tu solicitud.</h2>
+    <p id="gTexto">Un asesor de Diamond Travel te escribirá muy pronto por WhatsApp.</p>
+    <a class="btn btn-gold btn-block" id="gWhats" href="https://wa.me/573052051183" target="_blank" rel="noopener">Escribirnos ahora por WhatsApp</a>
+    <button class="btn btn-block" id="gOtra" type="button">Enviar otra solicitud</button>
+  </section>
+</main>
+
+<footer class="foot">
+  <p><b>Diamond Travel</b> · Agencia de viajes · Cúcuta, Norte de Santander</p>
+  <p><a href="https://wa.me/573052051183" target="_blank" rel="noopener">WhatsApp 305 205 1183</a> ·
+     <a href="mailto:reservasdiamondtravel@gmail.com">reservasdiamondtravel@gmail.com</a> ·
+     <a href="https://www.instagram.com/diamondtours_cucuta/" target="_blank" rel="noopener">@diamondtours_cucuta</a></p>
+  <p>Calle 17 OE-48, barrio Caobos, Cúcuta</p>
+</footer>
+<script src="/js/config.js"></script>
+<script src="/js/cotiza.js"></script>
+</body>
+</html>

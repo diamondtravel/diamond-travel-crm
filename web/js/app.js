@@ -51,7 +51,7 @@ function icon(path,size){return '<svg viewBox="0 0 24 24" width="'+(size||22)+'"
 
 /* ---------- State ---------- */
 const S={
-  sb:null,session:null,perfil:null,equipo:[],config:{},hist:{},plantillas:[],segs:[],faltaActualizacion:false,segTodos:false,
+  sb:null,session:null,perfil:null,equipo:[],config:{},hist:{},plantillas:[],segs:[],faltaActualizacion:false,segTodos:false,solicitudes:[],faltaFormulario:false,
   meId:null,isAdmin:false,
   ready:false,dbMissing:false,readOnly:false,loadError:null,
   clientes:[],cotizaciones:[],cotReady:false,
@@ -148,6 +148,7 @@ function renderMe(){
 function bannerEstado(){
   if(S.loadError)return '<div class="banner warn">No se pudieron cargar los datos: '+esc(explicarError(S.loadError))+'</div>';
   if(S.faltaActualizacion&&S.isAdmin)return '<div class="banner warn">Falta un paso: ejecuta en Supabase el archivo <b>02-seguimientos-y-plantillas.sql</b> para activar los seguimientos y las plantillas.</div>';
+  if(S.faltaFormulario&&S.isAdmin)return '<div class="banner warn">Falta un paso para activar el formulario “Cotiza tu viaje”: ejecuta en Supabase el archivo <b>03-formulario-cotiza.sql</b>.</div>';
   return "";
 }
 function vacioInicial(){
@@ -1095,6 +1096,8 @@ async function edClick(ev){
 }
 /* ----- Seguimientos de hoy ----- */
 const REGLAS_SEG=[
+  {k:"solicitud",l:"Solicitud del formulario",dias:0,ayudaDias:"días después de recibirla; 0 = el mismo día",
+    texto:"Hola {nombre}, ¡gracias por escribirnos! Te saluda {asesor} de Diamond Travel. Recibí tu solicitud para viajar a {destino} y ya estoy preparando tu cotización. ¿Tienes alguna preferencia de hotel, plan o aerolínea que deba tener en cuenta?"},
   {k:"cotizacion",l:"Cotización sin respuesta",dias:2,ayudaDias:"días después de enviar la cotización",
     texto:"Hola {nombre}, te saluda {asesor} de Diamond Travel. ¿Pudiste revisar la cotización {cotizacion} de tu viaje a {destino}? Si tienes alguna pregunta o quieres ajustar algo, con gusto te ayudo."},
   {k:"contacto",l:"Cliente sin contacto",dias:7,ayudaDias:"días sin ningún contacto",
@@ -1121,14 +1124,25 @@ function datosMensaje(c,q,dias){
 function seguimientosPendientes(){
   const hechos=new Set(S.segs.map(x=>x.clave));
   const out=[],porCliente=new Set();
-  const add=(regla,c,q,clave,motivo,dias,orden)=>{
+  const add=(regla,c,q,clave,motivo,dias,orden,extra)=>{
     if(!c||c.etapa==="perdido"||hechos.has(clave))return;
     const cfg=cfgSeg(regla);
-    out.push({regla:regla,cliente:c,cot:q||null,clave:clave,motivo:motivo,orden:orden,mensaje:llenarMensaje(cfg.texto,datosMensaje(c,q,dias))});
+    out.push({regla:regla,cliente:c,cot:q||null,clave:clave,motivo:motivo,orden:orden,mensaje:llenarMensaje(cfg.texto,Object.assign(datosMensaje(c,q,dias),extra||{}))});
     porCliente.add(c.id);
   };
   const cli=id=>S.clientes.find(x=>x.id===id);
   const vivas=S.cotizaciones.filter(q=>q.clienteId&&cli(q.clienteId));
+  // 0. Solicitudes del formulario "Cotiza tu viaje" sin responder (las más recientes primero)
+  if(!S.faltaFormulario&&cfgSeg("solicitud").activa){
+    const lim=cfgSeg("solicitud").dias;
+    S.solicitudes.forEach(so=>{
+      const d=diasDesde(so.creadoEn);if(d==null||d<lim||d>30)return;
+      const x=so.datos||{},pers=(+x.adultos||0)+(+x.ninos||0);
+      const cuando=d===0?"hoy":d===1?"ayer":"hace "+d+" días";
+      add("solicitud",cli(so.clienteId),null,"solicitud:"+so.id,"Llenó el formulario "+cuando+(x.destino?" · "+x.destino:"")+(pers?" · "+pers+(pers===1?" persona":" personas"):"")+(x.fechaIda?" · sale "+D.fmtFecha(x.fechaIda):""),d,-2+Math.min(d,999)/1000,
+        {destino:x.destino||"",fecha_ida:x.fechaIda?D.fmtFecha(x.fechaIda):""});
+    });
+  }
   // 1. Cotización enviada sin respuesta
   if(cfgSeg("cotizacion").activa)vivas.filter(q=>q.estado==="enviada").forEach(q=>{
     const env=(q.historialEstados||[]).filter(h=>h.estado==="enviada").map(h=>h.fecha).sort().pop()||q.actualizadoEn;
@@ -1183,7 +1197,9 @@ function bindSeguimientos(v){
       const ok=await guardar(()=>api.registrarSeguimiento({clienteId:x.cliente.id,cotizacionId:x.cot&&x.cot.id,regla:x.regla,clave:x.clave,resultado:"enviado",mensaje:x.mensaje}));
       if(ok){
         await api.agregarHistorial(x.cliente.id,"WhatsApp","Seguimiento enviado ("+REGLAS_SEG.find(r=>r.k===x.regla).l.toLowerCase()+"): "+x.mensaje);
-        await guardar(()=>api.actualizarCliente(x.cliente.id,{ultimoContacto:new Date().toISOString()}));
+        const patch={ultimoContacto:new Date().toISOString()};
+        if(x.regla==="solicitud"&&x.cliente.etapa==="nuevo"){patch.etapa="contactado";await api.agregarHistorial(x.cliente.id,"Etapa","Cambió de “"+etapaLabel("nuevo")+"” a “"+etapaLabel("contactado")+"”.");}
+        await guardar(()=>api.actualizarCliente(x.cliente.id,patch));
         toast("Seguimiento registrado en el historial de "+x.cliente.nombre);
       }
     },0);
@@ -1423,7 +1439,7 @@ async function exportarJSON(){
   try{hist=await todas("historial","fecha");}catch(e){toast(explicarError(e));return;}
   const porCliente={};hist.forEach(h=>{(porCliente[h.cliente_id]=porCliente[h.cliente_id]||[]).push({id:h.id,fecha:h.fecha,tipo:h.tipo,texto:h.texto,autor:h.autor});});
   const data={sistema:"Diamond Travel CRM",version:3,formato:"web",exportadoEn:new Date().toISOString(),exportadoPor:(S.perfil||{}).email||"",
-    clientes:S.clientes.map(c=>Object.assign({},c,{historial:porCliente[c.id]||[]})),cotizaciones:S.cotizaciones.map(q=>Object.assign({},q)),plantillas:S.plantillas.map(p=>Object.assign({},p))};
+    clientes:S.clientes.map(c=>Object.assign({},c,{historial:porCliente[c.id]||[]})),cotizaciones:S.cotizaciones.map(q=>Object.assign({},q)),plantillas:S.plantillas.map(p=>Object.assign({},p)),solicitudes:S.solicitudes.map(x=>Object.assign({},x))};
   descargar("diamond-travel-respaldo-"+sello()+".json",JSON.stringify(data,null,2));
 }
 const celdaCSV=v=>{v=v==null?"":String(v);return /[";\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
@@ -1610,12 +1626,16 @@ async function todas(tabla,orden){
   return out;
 }
 function deFilaPlantilla(r){return {id:r.id,nombre:r.nombre,datos:r.datos||{},creadoPor:r.creado_por,creadoEn:r.creado_en,actualizadoEn:r.actualizado_en};}
+function deFilaSol(r){return {id:r.id,clienteId:r.cliente_id,creadoEn:r.creado_en,nuevo:!!r.nuevo_cliente,datos:r.datos||{}};}
 function deFilaSeg(r){return {id:r.id,clienteId:r.cliente_id,cotizacionId:r.cotizacion_id,regla:r.regla,clave:r.clave,resultado:r.resultado,fecha:r.fecha,autor:r.autor};}
 function ponerPlantilla(p){const i=S.plantillas.findIndex(x=>x.id===p.id);if(i>=0)S.plantillas[i]=p;else S.plantillas.push(p);refrescarTodo();}
 const tablaFalta=e=>e&&(e.code==="42P01"||e.code==="PGRST205"||/does not exist|Could not find the table/i.test(String(e.message||"")));
 async function cargarExtras(){ // tablas de la actualización 2: si aún no existen, el resto del CRM sigue funcionando
   try{S.plantillas=(await todas("plantillas","actualizado_en")).map(deFilaPlantilla);S.segs=(await todas("seguimientos","fecha")).map(deFilaSeg);S.faltaActualizacion=false;}
   catch(e){if(tablaFalta(e)){S.faltaActualizacion=true;S.plantillas=[];S.segs=[];}else console.error(e);}
+  // tabla de la actualización 3 (formulario "Cotiza tu viaje")
+  try{S.solicitudes=(await todas("solicitudes","creado_en")).map(deFilaSol);S.faltaFormulario=false;}
+  catch(e){if(tablaFalta(e)){S.faltaFormulario=true;S.solicitudes=[];}else console.error(e);}
 }
 async function cargarClientes(){S.clientes=(await todas("clientes","actualizado_en")).map(deFilaCliente);S.ready=true;}
 async function cargarCotizaciones(){S.cotizaciones=(await todas("cotizaciones","numero")).map(deFilaCot);S.cotReady=true;}
@@ -1670,6 +1690,10 @@ function suscribir(){
     .on("postgres_changes",{event:"*",schema:"public",table:"historial"},p=>{const id=(p.new&&p.new.cliente_id)||(p.old&&p.old.cliente_id);if(id&&S.hist[id])luego("h"+id,()=>cargarHistorial(id));})
     .on("postgres_changes",{event:"*",schema:"public",table:"plantillas"},()=>luego("pl",async()=>{await cargarExtras();refrescarTodo();}))
     .on("postgres_changes",{event:"*",schema:"public",table:"seguimientos"},()=>luego("sg",async()=>{await cargarExtras();refrescarTodo();}))
+    .on("postgres_changes",{event:"*",schema:"public",table:"solicitudes"},p=>luego("so",async()=>{
+      await cargarExtras();refrescarTodo();
+      if(p&&p.eventType==="INSERT"){const n=((p.new||{}).datos||{}).nombre;toast("Nueva solicitud del formulario"+(n?": "+n:""));}
+    }))
     .on("postgres_changes",{event:"*",schema:"public",table:"perfiles"},()=>luego("p",async()=>{try{await cargarEquipo();if(!S.perfil||!S.perfil.activo){mostrarAuth("pendiente");return;}refrescarTodo();}catch(e){console.error(e);}}))
     .subscribe();
 }
@@ -1792,7 +1816,7 @@ async function entrar(session){
 async function cerrarSesion(){
   try{if(S.canal)S.sb.removeChannel(S.canal);}catch(_){}
   await S.sb.auth.signOut();
-  Object.assign(S,{session:null,perfil:null,equipo:[],config:{},hist:{},clientes:[],cotizaciones:[],ready:false,cotReady:false,meId:null,isAdmin:false,loadError:null});
+  Object.assign(S,{session:null,perfil:null,equipo:[],config:{},hist:{},clientes:[],cotizaciones:[],plantillas:[],segs:[],solicitudes:[],ready:false,cotReady:false,meId:null,isAdmin:false,loadError:null});
   mostrarAuth("login");
 }
 function abrirMiCuenta(){
@@ -1826,6 +1850,60 @@ function abrirMiCuenta(){
   };
 }
 
+/* ---------- Formulario público "Cotiza tu viaje" (configuración del administrador) ---------- */
+const ORIGENES_FORM=["Instagram","Facebook","TikTok","WhatsApp","Google"];
+function enlaceFormulario(destino,origen){
+  const u=location.origin+"/cotiza",q=[];
+  if(destino)q.push("destino="+encodeURIComponent(destino));
+  if(origen)q.push("origen="+encodeURIComponent(origen));
+  return u+(q.length?"?"+q.join("&"):"");
+}
+function bienvenidaFormulario(){
+  return "¡Hola! Gracias por escribir a Diamond Travel ✈️ Para prepararte tu cotización más rápido, cuéntanos tu destino, fechas y número de personas en este formulario: "+enlaceFormulario()+"\nSi prefieres, escríbenos aquí mismo y con gusto te ayudamos.";
+}
+function formularioHTML(){
+  let h='<div class="panel panel-pad" id="formPanel" style="display:flex;flex-direction:column;gap:14px"><h2>Formulario “Cotiza tu viaje”</h2>';
+  if(S.faltaFormulario)return h+'<p class="muted" style="margin:0">Para activarlo, ejecuta en Supabase el archivo <b>03-formulario-cotiza.sql</b>.</p></div>';
+  const asig=(S.config.formulario||{}).asesorId||"",link=enlaceFormulario();
+  h+='<p class="help" style="margin:0">Cuando alguien llena el formulario, queda guardado solo en Clientes (etapa “Nuevo contacto”) y aparece de primero en <b>Seguimientos de hoy</b>, con el mensaje listo para responderle por WhatsApp. Si el número ya existía, la solicitud se agrega a la ficha de ese cliente sin duplicarlo.</p>'+
+    '<div class="field"><label for="fmLink">Enlace del formulario</label><input class="input" id="fmLink" readonly value="'+esc(link)+'">'+
+    '<div class="actions"><button type="button" class="btn btn-sm btn-gold" data-copy="'+esc(link)+'">Copiar enlace</button><a class="btn btn-sm" href="'+esc(link)+'" target="_blank" rel="noopener">Abrir formulario</a></div></div>'+
+    '<div class="field"><label for="fmAsesor">Asignar las solicitudes nuevas a</label><select class="input" id="fmAsesor">'+
+      '<option value="">Administrador(a) principal (automático)</option>'+
+      S.equipo.filter(p=>p.activo).map(p=>'<option value="'+esc(p.id)+'"'+(p.id===asig?" selected":"")+'>'+esc((p.nombre||p.email)+(p.id===S.meId?" (tú)":""))+'</option>').join("")+'</select></div>'+
+    '<div class="opt-card"><b>Mensaje de bienvenida para WhatsApp Business</b>'+
+      '<p class="help" style="margin:0">WhatsApp Business lo envía solo a quien te escribe por primera vez (o después de 14 días sin hablar contigo).</p>'+
+      '<textarea class="input" id="fmBienv" readonly rows="4">'+esc(bienvenidaFormulario())+'</textarea>'+
+      '<div><button type="button" class="btn btn-sm btn-gold" data-copy="'+esc(bienvenidaFormulario())+'">Copiar mensaje</button></div>'+
+      '<ol class="steps"><li>Abre <b>WhatsApp Business</b> y toca los tres puntos <b>⋮</b> (arriba a la derecha).</li>'+
+      '<li>Entra a <b>Herramientas para la empresa → Mensaje de bienvenida</b>.</li>'+
+      '<li>Activa <b>Enviar mensaje de bienvenida</b>, toca el mensaje, borra el texto que tenga y pega el que copiaste.</li>'+
+      '<li>Toca <b>Guardar</b>.</li></ol></div>'+
+    '<div class="opt-card"><b>Enlace para una publicación o historia</b>'+
+      '<p class="help" style="margin:0">Así el formulario abre con el destino ya escrito y sabrás de qué red social llegó cada cliente.</p>'+
+      '<div class="grid2" style="display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">'+
+        '<div class="field"><label for="fmDest">Destino</label><input class="input" id="fmDest" maxlength="120" placeholder="Ej.: San Andrés"></div>'+
+        '<div class="field"><label for="fmOrig">Dónde lo vas a publicar</label><select class="input" id="fmOrig"><option value="">—</option>'+ORIGENES_FORM.map(o=>'<option>'+o+'</option>').join("")+'</select></div></div>'+
+      '<input class="input" id="fmLink2" readonly value="'+esc(link)+'" aria-label="Enlace para la publicación">'+
+      '<div><button type="button" class="btn btn-sm" id="fmCopy2">Copiar este enlace</button></div></div>';
+  return h+'</div>';
+}
+function bindFormulario(v){
+  const p=v.querySelector("#formPanel");if(!p)return;
+  p.querySelectorAll("[data-copy]").forEach(b=>b.onclick=async()=>{try{await navigator.clipboard.writeText(b.dataset.copy);toast("Copiado");}catch(_){toast("Mantén presionado el texto para copiarlo.");}});
+  const sel=p.querySelector("#fmAsesor");
+  if(sel)sel.onchange=async()=>{
+    const val={asesorId:sel.value||null};
+    if(await guardar(()=>api.guardarConfig("formulario",val))){S.config.formulario=val;toast("Las solicitudes nuevas se asignarán a "+(sel.value?sel.options[sel.selectedIndex].text:"la administradora principal"));}
+    else render();
+  };
+  const d=p.querySelector("#fmDest"),o=p.querySelector("#fmOrig"),l2=p.querySelector("#fmLink2");
+  const upd=()=>{if(l2)l2.value=enlaceFormulario(d.value.trim(),o.value);};
+  if(d)d.oninput=upd;if(o)o.onchange=upd;
+  const c2=p.querySelector("#fmCopy2");
+  if(c2)c2.onclick=async()=>{try{await navigator.clipboard.writeText(l2.value);toast("Enlace copiado");}catch(_){l2.select();toast("Mantén presionado el enlace para copiarlo.");}};
+}
+
 /* ---------- Equipo (solo administrador) ---------- */
 function viewEquipo(){
   let h='<div class="page-head"><div><span class="eyebrow">Accesos y permisos</span><h1>Equipo</h1></div></div>';
@@ -1842,6 +1920,7 @@ function viewEquipo(){
   h+='<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Qué ven los asesores</h2>'+
     '<label class="check"><input type="checkbox" id="eqVer"'+(ver?" checked":"")+'> Los asesores pueden ver todos los clientes y cotizaciones</label>'+
     '<p class="help" style="margin:0">Desmarcado (recomendado): cada asesor ve solo sus clientes y cotizaciones. El administrador siempre ve todo. Solo el administrador puede borrar registros.</p></div>';
+  h+=formularioHTML();
   h+=editorSeguimientosHTML();
   h+='<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Agregar a un asesor</h2><ol class="steps">'+
     '<li>Entra a <b>supabase.com</b>, abre el proyecto <b>diamond-travel-crm</b> y ve a <b>Authentication → Users</b>.</li>'+
@@ -1853,6 +1932,7 @@ function viewEquipo(){
 }
 function bindEquipo(v){
   bindEditorSeguimientos(v);
+  bindFormulario(v);
   v.querySelectorAll("[data-eq-rol]").forEach(sel=>sel.onchange=async()=>{
     const id=sel.dataset.eqRol;
     if(id===S.meId&&sel.value!=="admin"&&!(await confirmar("¿Quitarte el rol de administrador?","Perderás el acceso a Equipo y a las funciones de administrador.","Sí, cambiar mi rol",true))){render();return;}

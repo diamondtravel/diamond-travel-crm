@@ -34,7 +34,12 @@ Diseño azul marino, dorado y blanco · interfaz en español · moneda COP · fe
 - **Plantillas de cotización** (por ejemplo "San Andrés"): guardan destino, servicios, condiciones y opciones;
   no guardan cliente, fechas, pasajeros ni precios.
 - **Varias opciones de precio** por cotización (por ejemplo solo desayuno / todo incluido), cada una con su total en el PDF.
-- Actualizaciones de la base de datos: `supabase/02-seguimientos-y-plantillas.sql` (se ejecuta una vez, después de `schema.sql`).
+- **Formulario público "Cotiza tu viaje"** (`web/cotiza/`, enlace `/cotiza`): el cliente llena destino, fechas y personas;
+  queda guardado solo en el CRM y aparece de primero en Seguimientos de hoy. Solo puede llamar a la función
+  `registrar_solicitud` (valida datos, evita duplicados, limita envíos y guarda la autorización de datos, Ley 1581 de 2012).
+  El administrador lo configura en Equipo (enlace, asignación y mensaje de bienvenida para WhatsApp Business).
+- Actualizaciones de la base de datos (cada una se ejecuta una vez, en orden, después de `schema.sql`):
+  `supabase/02-seguimientos-y-plantillas.sql` y `supabase/03-formulario-cotiza.sql`.
 - Pruebas de extremo a extremo con Supabase simulado y datos ficticios: `web-pruebas/`.
 
 ## Estructura

@@ -17,14 +17,32 @@ function cargarDB() {
       { id: users[0].id, email: users[0].email, nombre: "", rol: "admin", activo: true, creado_en: now() },
       { id: users[1].id, email: users[1].email, nombre: "Asesora Uno", rol: "asesor", activo: false, creado_en: now() }
     ],
-    config: [], clientes: [], historial: [], cotizaciones: [], seguimientos: [], plantillas: []
+    config: [], clientes: [], historial: [], cotizaciones: [], seguimientos: [], plantillas: [], solicitudes: []
   };
 }
 let DB = cargarDB();
-if (!DB.seguimientos) DB.seguimientos = []; if (!DB.plantillas) DB.plantillas = [];
+if (!DB.seguimientos) DB.seguimientos = []; if (!DB.plantillas) DB.plantillas = []; if (!DB.solicitudes) DB.solicitudes = [];
 const SIN_TABLAS = (() => { try { return localStorage.getItem("mock-sin-tablas") === "1"; } catch (_) { return false; } })();
+const SIN_03 = (() => { try { return localStorage.getItem("mock-sin-03") === "1"; } catch (_) { return false; } })();
 const guardarDB = () => { try { localStorage.setItem(K, JSON.stringify(DB)); } catch (_) {} };
 window.__mockDB = () => DB;
+// Simula lo que hace la función registrar_solicitud (formulario público) para preparar datos de prueba.
+window.__mockSolicitud = (d, haceDias) => {
+  const fecha = new Date(Date.now() - (haceDias || 0) * 864e5).toISOString();
+  const tel = String(d.telefono).replace(/\D/g, "").slice(-10);
+  let c = DB.clientes.find(x => String(x.telefono).replace(/\D/g, "").slice(-10) === tel), nuevo = false;
+  const adminP = DB.perfiles.find(p => p.rol === "admin" && p.activo);
+  if (!c) {
+    nuevo = true;
+    c = { id: uuid(), nombre: d.nombre, telefono: d.telefono, email: d.email || "", ciudad: "", origen: "Formulario web" + (d.comoNosConocio ? " · " + d.comoNosConocio : ""),
+      destinos: d.destino, tipo_viaje: "", fecha_viaje: d.fechaIda || null, adultos: +d.adultos || 1, ninos: +d.ninos || 0, presupuesto: null, intereses: [],
+      preferencias: d.comentarios || "", etapa: "nuevo", asesor_id: adminP.id, creado_por: null, creado_en: fecha, actualizado_en: fecha, ultimo_contacto: null, cerrado_en: null, ejemplo: false };
+    DB.clientes.push(c);
+  } else if (c.etapa === "perdido") c.etapa = "nuevo";
+  DB.historial.push({ id: uuid(), cliente_id: c.id, fecha, tipo: "Formulario", texto: "Llegó por el formulario \"Cotiza tu viaje\". Destino: " + d.destino, autor: null });
+  DB.solicitudes.push({ id: uuid(), cliente_id: c.id, creado_en: fecha, telefono_norm: tel, nuevo_cliente: nuevo, datos: Object.assign({ autorizaDatos: true }, d) });
+  guardarDB();
+};
 
 let sesion = null;
 try { sesion = JSON.parse(localStorage.getItem(K + "-sesion") || "null"); } catch (_) {}
@@ -40,7 +58,8 @@ const visible = {
   cotizaciones: r => activo() && (veTodo() || r.asesor_id === uid()),
   historial: r => { const c = DB.clientes.find(x => x.id === r.cliente_id); return !!c && visible.clientes(c); },
   seguimientos: r => { const c = DB.clientes.find(x => x.id === r.cliente_id); return !!c && visible.clientes(c); },
-  plantillas: () => activo()
+  plantillas: () => activo(),
+  solicitudes: r => { const c = DB.clientes.find(x => x.id === r.cliente_id); return !!c && visible.clientes(c); }
 };
 const puedeInsertar = {
   perfiles: () => false, config: () => admin(),
@@ -48,16 +67,17 @@ const puedeInsertar = {
   cotizaciones: r => activo() && (admin() || r.asesor_id === uid()),
   historial: r => activo() && (r.autor === uid() || admin()) && visible.historial(r),
   seguimientos: r => activo() && r.autor === uid() && visible.seguimientos(r),
-  plantillas: r => activo() && r.creado_por === uid()
+  plantillas: r => activo() && r.creado_por === uid(),
+  solicitudes: () => false
 };
 const puedeEditar = {
   perfiles: (r) => r.id === uid() || admin(), config: () => admin(),
   clientes: (r, n) => visible.clientes(r) && (admin() || n.asesor_id === uid()),
   cotizaciones: (r, n) => visible.cotizaciones(r) && (admin() || n.asesor_id === uid()),
-  historial: () => false, seguimientos: () => false, plantillas: () => activo()
+  historial: () => false, seguimientos: () => false, plantillas: () => activo(), solicitudes: () => false
 };
 const puedeBorrar = { perfiles: () => false, config: () => admin(), clientes: () => admin(), cotizaciones: () => admin(), historial: () => false,
-  seguimientos: () => admin(), plantillas: r => admin() || (activo() && r.creado_por === uid()) };
+  seguimientos: () => admin(), plantillas: r => admin() || (activo() && r.creado_por === uid()), solicitudes: () => admin() };
 const err = (code, message) => ({ data: null, error: { code, message } });
 const PK = { config: "clave" };
 
@@ -107,6 +127,7 @@ class Q {
   then(res, rej) { return Promise.resolve().then(() => this.run()).then(res, rej); }
   run() {
     if (!uid()) return err("42501", "permission denied (sin sesión)");
+    if ((SIN_TABLAS || SIN_03) && this.t === "solicitudes") return err("PGRST205", "Could not find the table 'public.solicitudes' in the schema cache");
     if (SIN_TABLAS && (this.t === "seguimientos" || this.t === "plantillas")) return err("PGRST205", "Could not find the table 'public." + this.t + "' in the schema cache");
     const T = DB[this.t], vis = visible[this.t];
     let out;
