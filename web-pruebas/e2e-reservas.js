@@ -215,7 +215,7 @@ async function textoPDF(file) {
   // ---- Teléfono
   const p3 = await nuevaPagina(browser, { width: 390, height: 844 });
   await entrarAdmin(p3);
-  ok('Teléfono: el menú inferior cabe sin desplazamiento horizontal', !(await p3.evaluate(() => document.documentElement.scrollWidth > innerWidth)) && (await p3.locator('#tabNav .tab').count()) === 7);
+  ok('Teléfono: el menú inferior cabe sin desplazamiento horizontal', !(await p3.evaluate(() => document.documentElement.scrollWidth > innerWidth)) && (await p3.locator('#tabNav .tab:visible').count()) === 6);
   await p3.screenshot({ path: path.join(OUT, '05-movil-inicio.png') });
   await p3.locator('.tab[data-view="reservas"]:visible').click();
   await p3.locator('[data-act="nueva-res"]').first().click();

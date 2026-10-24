@@ -41,8 +41,11 @@ Diseño azul marino, dorado y blanco · interfaz en español · moneda COP · fe
 - **Reservas y voucher de viaje** (`web/js/voucher.js`): consecutivo RS, se crean desde una cotización aceptada;
   pasajeros (documentos solo en el CRM), reservas aéreas con trayectos ilimitados y escalas calculadas, varios hoteles,
   traslados y actividades por secciones. El voucher en PDF incluye el contacto 305 205 1183 y emergencias 24/7 312 382 4183.
+- **Pagos**: cuotas del cliente con fecha límite (dividir en cuotas iguales, abonos parciales) y pagos a proveedores;
+  panel "Pagos de hoy" en Inicio que no se borra hasta marcar "Ya me pagó" / "Ya pagué"; recordatorio por WhatsApp;
+  recibo de pago en PDF con consecutivo RC; solo el administrador deshace pagos.
 - Actualizaciones de la base de datos (cada una se ejecuta una vez, en orden, después de `schema.sql`):
-  `supabase/02-seguimientos-y-plantillas.sql`, `supabase/03-formulario-cotiza.sql` y `supabase/04-reservas.sql`.
+  `supabase/02-seguimientos-y-plantillas.sql`, `supabase/03-formulario-cotiza.sql`, `supabase/04-reservas.sql` y `supabase/05-pagos.sql`.
 - Pruebas de extremo a extremo con Supabase simulado y datos ficticios: `web-pruebas/`.
 
 ## Estructura

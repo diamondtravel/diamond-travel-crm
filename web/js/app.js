@@ -18,11 +18,12 @@ const TIPOS_SEG=["Llamada","WhatsApp","Correo","Reunión","Nota"];
 const VIEWS=[
   {k:"inicio",l:"Inicio",i:'<path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>'},
   {k:"clientes",l:"Clientes",i:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 14.6c2.6.2 4.3 1.9 5 4.9"/>'},
-  {k:"embudo",l:"Embudo",i:'<path d="M3 4h18l-7 8.5V19l-4 2v-8.5z"/>'},
+  {k:"embudo",l:"Embudo",extra:true,i:'<path d="M3 4h18l-7 8.5V19l-4 2v-8.5z"/>'},
   {k:"cotizaciones",l:"Cotizaciones",i:'<path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3v5h5M8.5 13h7M8.5 16.5h4.5"/>'},
   {k:"reservas",l:"Reservas",i:'<rect x="3.5" y="7" width="17" height="13" rx="2"/><path d="M8.5 7V5.2A1.7 1.7 0 0 1 10.2 3.5h3.6a1.7 1.7 0 0 1 1.7 1.7V7M3.5 12.5h17M10 12.5v2h4v-2"/>'},
-  {k:"respaldo",l:"Respaldo",i:'<path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>'},
-  {k:"equipo",l:"Equipo",admin:true,i:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.9-3.6 3.6-5.5 7-5.5s6.1 1.9 7 5.5"/><path d="M19 3.5l.8 1.6 1.7.3-1.2 1.2.3 1.7-1.6-.8-1.6.8.3-1.7-1.2-1.2 1.7-.3z"/>'}
+  {k:"pagos",l:"Pagos",i:'<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10.5h18M7 15h4"/><path d="M16.5 15h1"/>'},
+  {k:"respaldo",l:"Respaldo",extra:true,i:'<path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>'},
+  {k:"equipo",l:"Equipo",admin:true,extra:true,i:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.9-3.6 3.6-5.5 7-5.5s6.1 1.9 7 5.5"/><path d="M19 3.5l.8 1.6 1.7.3-1.2 1.2.3 1.7-1.6-.8-1.6.8.3-1.7-1.2-1.2 1.7-.3z"/>'}
 ];
 const etapaLabel=k=>(ETAPAS.find(e=>e.k===k)||{l:k}).l;
 
@@ -52,7 +53,7 @@ function icon(path,size){return '<svg viewBox="0 0 24 24" width="'+(size||22)+'"
 
 /* ---------- State ---------- */
 const S={
-  sb:null,session:null,perfil:null,equipo:[],config:{},hist:{},plantillas:[],segs:[],faltaActualizacion:false,segTodos:false,solicitudes:[],faltaFormulario:false,reservas:[],resReady:false,faltaReservas:false,rq:"",restado:"activas",
+  sb:null,session:null,perfil:null,equipo:[],config:{},hist:{},plantillas:[],segs:[],faltaActualizacion:false,segTodos:false,solicitudes:[],faltaFormulario:false,reservas:[],resReady:false,faltaReservas:false,rq:"",restado:"activas",pagos:[],abonos:[],faltaPagos:false,pTipo:"todos",pPeriodo:"semana",
   meId:null,isAdmin:false,
   ready:false,dbMissing:false,readOnly:false,loadError:null,
   clientes:[],cotizaciones:[],cotReady:false,
@@ -128,10 +129,21 @@ const nombrePersona=id=>{
 
 /* ---------- Navigation ---------- */
 function renderNav(){
-  const html=VIEWS.filter(v=>!v.admin||S.isAdmin).map(v=>'<button class="tab" data-view="'+v.k+'"'+(S.view===v.k?' aria-current="page"':'')+'>'+icon(v.i)+'<span>'+v.l+'</span></button>').join("");
-  document.getElementById("railNav").innerHTML=html;
-  document.getElementById("tabNav").innerHTML=html;
-  document.querySelectorAll("[data-view]").forEach(b=>b.onclick=()=>irA(b.dataset.view));
+  const vs=VIEWS.filter(v=>!v.admin||S.isAdmin);
+  const btn=(v,extra)=>'<button class="tab'+(extra&&v.extra?" tab-extra":"")+'" data-view="'+v.k+'"'+(S.view===v.k?' aria-current="page"':'')+'>'+icon(v.i)+'<span>'+v.l+'</span></button>';
+  document.getElementById("railNav").innerHTML=vs.map(v=>btn(v,false)).join("");
+  // En el teléfono, Embudo, Respaldo y Equipo van dentro de "Más" para que el menú no quede apretado.
+  const enMas=vs.some(v=>v.extra&&v.k===S.view);
+  document.getElementById("tabNav").innerHTML=vs.map(v=>btn(v,true)).join("")+
+    '<button class="tab tab-mas" data-mas'+(enMas?' aria-current="page"':'')+'>'+icon('<circle cx="5.5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18.5" cy="12" r="1.4"/>')+'<span>Más</span></button>';
+  document.querySelectorAll("#railNav [data-view],#tabNav [data-view]").forEach(b=>b.onclick=()=>irA(b.dataset.view));
+  const m=document.querySelector("#tabNav [data-mas]");
+  if(m)m.onclick=()=>{
+    const s=openOverlay('<div class="sheet-head"><h2>Más opciones</h2><button class="btn btn-ghost btn-sm" id="masClose">Cerrar</button></div><div class="sheet-body"><div class="list">'+
+      vs.filter(v=>v.extra).map(v=>'<button type="button" class="pick" data-mas-ir="'+v.k+'"><span style="display:flex;gap:12px;align-items:center">'+icon(v.i)+'<b>'+v.l+'</b></span></button>').join("")+'</div></div>',"confirm","mas");
+    s.querySelector("#masClose").onclick=()=>closeOverlay("mas");
+    s.querySelectorAll("[data-mas-ir]").forEach(b=>b.onclick=()=>{closeOverlay("mas");irA(b.dataset.masIr);});
+  };
 }
 function irA(v){S.view=v;try{history.replaceState(null,"","#"+v);}catch(_){location.hash=v;}render();window.scrollTo(0,0);}
 function renderMe(){
@@ -150,6 +162,7 @@ function bannerEstado(){
   if(S.loadError)return '<div class="banner warn">No se pudieron cargar los datos: '+esc(explicarError(S.loadError))+'</div>';
   if(S.faltaActualizacion&&S.isAdmin)return '<div class="banner warn">Falta un paso: ejecuta en Supabase el archivo <b>02-seguimientos-y-plantillas.sql</b> para activar los seguimientos y las plantillas.</div>';
   if(S.faltaReservas&&S.isAdmin&&S.view!=="reservas")return '<div class="banner warn">Falta un paso para activar las reservas y el voucher de viaje: ejecuta en Supabase el archivo <b>04-reservas.sql</b>.</div>';
+  if(!S.faltaReservas&&S.faltaPagos&&S.isAdmin&&S.view!=="pagos")return '<div class="banner warn">Falta un paso para activar los pagos y recordatorios de pago: ejecuta en Supabase el archivo <b>05-pagos.sql</b>.</div>';
   if(S.faltaFormulario&&S.isAdmin)return '<div class="banner warn">Falta un paso para activar el formulario “Cotiza tu viaje”: ejecuta en Supabase el archivo <b>03-formulario-cotiza.sql</b>.</div>';
   return "";
 }
@@ -196,6 +209,7 @@ function viewInicio(){
     '<div class="kpi"><span class="k">Ventas cerradas este mes</span><span class="v">'+ganadosMes+'</span></div></div>';
 
   h+=panelSeguimientos();
+  h+=panelPagosHoy();
   h+='<div class="cols">';
   h+='<div class="panel panel-pad"><div class="section-title"><h2>Embudo comercial</h2><button class="btn btn-ghost btn-sm" data-view-go="embudo">Ver tablero</button></div>'+
     conteo.map(x=>'<div class="funnel-row"><span>'+esc(x.e.l)+'</span><div class="bar-track"><div class="bar-fill" style="width:'+(x.n/maxN*100)+'%"></div></div><span class="num" style="text-align:right;font-weight:600">'+x.n+'</span></div>').join("")+'</div>';
@@ -204,7 +218,6 @@ function viewInicio(){
     (proximos.length?proximos.map(x=>x.r?'<div class="row clickable" data-res="'+esc(x.r.id)+'"><div class="row-main"><span class="row-title">'+esc(x.r.destino||"Destino por definir")+'</span><span class="row-sub">'+esc((x.r.titular||{}).nombre||"")+' · '+fmtFecha(x.f)+' · '+esc(RV.codigo(x.r.numero))+'</span></div><span class="pill res-'+esc(x.r.estado)+'">'+esc(resEstadoL(x.r.estado))+'</span></div>':'<div class="row clickable" data-open="'+esc(x.c.id)+'"><div class="row-main"><span class="row-title">'+esc(x.c.destinos||"Destino por definir")+'</span><span class="row-sub">'+esc(x.c.nombre)+' · '+fmtFecha(x.c.fechaViaje)+'</span></div><span class="pill st-'+esc(x.c.etapa)+'">'+esc(etapaLabel(x.c.etapa))+'</span></div>').join("")
     :'<p class="muted" style="margin:6px 0">No hay viajes con fecha tentativa en los próximos 60 días.</p>')+'</div></div>';
   h+='</div>';
-  h+='<p class="help">Los pagos por cobrar y por pagar se sumarán aquí cuando construyamos ese módulo.</p>';
   return h;
 }
 
@@ -265,7 +278,7 @@ function viewRespaldo(){
   h+=bannerEstado();
   const demos=S.clientes.filter(c=>c.ejemplo).length;
   h+='<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Descargar una copia de seguridad</h2>'+
-    '<p class="muted" style="margin:0">Guarda una copia en tu iPad (Archivos o iCloud Drive) al menos una vez por semana. La copia completa (JSON) incluye clientes, historial y cotizaciones, y permite restaurarlos. Nunca la subas a GitHub.</p>'+
+    '<p class="muted" style="margin:0">Guarda una copia en tu iPad (Archivos o iCloud Drive) al menos una vez por semana. La copia completa (JSON) incluye clientes, historial, cotizaciones, reservas y pagos, y permite restaurarlos. Nunca la subas a GitHub.</p>'+
     '<div class="chips"><button class="btn btn-gold" data-act="exp-json"'+(S.clientes.length||S.cotizaciones.length?'':' disabled')+'>Copia completa (JSON)</button><button class="btn" data-act="exp-csv"'+(S.clientes.length?'':' disabled')+'>Clientes para Excel (CSV)</button><button class="btn" data-act="exp-csv-q"'+(S.cotizaciones.length?'':' disabled')+'>Cotizaciones para Excel (CSV)</button></div>'+
     '<p class="help" style="margin:0">'+S.clientes.length+' clientes, '+S.cotizaciones.length+' cotizaciones y '+S.reservas.length+' reservas en la base de datos. La copia completa los incluye todos.</p></div>';
   if(S.isAdmin){
@@ -284,7 +297,7 @@ function viewRespaldo(){
 function render(){
   renderNav();renderMe();
   const v=document.getElementById("view");
-  const fn={inicio:viewInicio,clientes:viewClientes,embudo:viewEmbudo,cotizaciones:viewCotizaciones,reservas:viewReservas,respaldo:viewRespaldo,equipo:viewEquipo}[S.view]||viewInicio;
+  const fn={inicio:viewInicio,clientes:viewClientes,embudo:viewEmbudo,cotizaciones:viewCotizaciones,reservas:viewReservas,pagos:viewPagos,respaldo:viewRespaldo,equipo:viewEquipo}[S.view]||viewInicio;
   v.innerHTML=fn();
   bindView();
 }
@@ -314,6 +327,8 @@ function bindView(){
   if(S.view==="equipo")bindEquipo(v);
   if(S.view==="inicio")bindSeguimientos(v);
   if(S.view==="reservas")bindReservas(v);
+  if(S.view==="pagos")bindVistaPagos(v);
+  if(S.view==="inicio"){const ph=v.querySelector("#pagosHoy");if(ph)bindPagos(ph);}
   v.querySelectorAll("[data-res]").forEach(el=>el.onclick=()=>abrirReserva(el.dataset.res));
 }
 
@@ -1518,6 +1533,7 @@ function pintarReserva(){
       (wa?'<div class="actions"><a class="btn" id="rWa" href="'+esc(wa)+'" target="_blank" rel="noopener">Abrir WhatsApp con el mensaje</a><button class="btn" id="rCopy">Copiar mensaje</button>'+(puede&&!r.voucherEnviadoEn?'<button class="btn" id="rMarcar">Marcar como enviado</button>':'')+'</div>'+
         '<p class="help" style="margin:0;white-space:pre-line">'+esc(RV.mensajeWhatsApp(r))+'</p><p class="help" style="margin:0">Después de abrir la conversación, adjunta el PDF del voucher que descargaste.</p>'
         :'<p class="muted" style="margin:0">La reserva no tiene el WhatsApp del titular. Agrégalo en Editar.</p>')+'</div>'+
+    panelPagosRes(r,puede)+
     '<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Estado</h2>'+
       (puede?'<select class="input" id="rEstado" aria-label="Cambiar estado">'+RV.ESTADOS.map(e=>'<option value="'+e.k+'"'+(e.k===r.estado?" selected":"")+'>'+e.l+'</option>').join("")+'</select>':'')+
       (hist.length?'<div class="timeline">'+hist.map(x=>'<div class="tl-item"><span class="tl-dot"></span><div class="tl-body"><span class="tl-meta">'+fmtFechaHora(x.fecha)+' · '+esc(nombrePersona(x.autor))+'</span><span class="tl-text">'+esc(resEstadoL(x.estado))+'</span></div></div>').join("")+'</div>':'')+'</div>'+
@@ -1536,6 +1552,8 @@ function pintarReserva(){
   const cp=s.querySelector("#rCopy");if(cp)cp.onclick=async()=>{try{await navigator.clipboard.writeText(RV.mensajeWhatsApp(r));toast("Mensaje copiado");}catch(_){toast("Mantén presionado el mensaje para copiarlo.");}};
   const mk=s.querySelector("#rMarcar");if(mk)mk.onclick=()=>marcarVoucherEnviado(r);
   const es=s.querySelector("#rEstado");if(es)es.onchange=()=>cambiarEstadoRes(r,es.value);
+  const rp=s.querySelector("#resPagos");if(rp)bindPagos(rp);
+  const pl=s.querySelector("#rPlan");if(pl)pl.onclick=()=>abrirPlanPagos(r.id);
   const cl=s.querySelector("#rCli");if(cl)cl.onclick=()=>abrirDetalle(r.clienteId);
   const cq=s.querySelector("#rCot");if(cq)cq.onclick=()=>abrirCotizacion(r.cotizacionId);
   const ed=s.querySelector("#rEdit");if(ed)ed.onclick=()=>abrirEditorRes(r.id);
@@ -1957,6 +1975,362 @@ async function guardarRes(modo){
   else toast((nuevo?"Reserva creada: ":"Reserva guardada: ")+RV.codigo(saved.numero));
 }
 
+/* =====================================================================
+   PAGOS: cuotas de clientes (por cobrar) y pagos a proveedores (por pagar)
+   ===================================================================== */
+const MEDIOS_PAGO=["Transferencia Bancolombia","Otra transferencia","Nequi","Daviplata","Efectivo","Tarjeta","Otro"];
+const CATEG_PROV=["Hotel","Actividades","Aerolínea","Traslados","Asistencia médica","Operador o mayorista","Otro"];
+const fmtM=(n,mon)=>RV.fmtMoneda(n,mon||"COP");
+function abonosDe(pid){return S.abonos.filter(a=>a.pagoId===pid).sort((a,b)=>String(a.registradoEn).localeCompare(String(b.registradoEn)));}
+function estadoPago(p){
+  const pagado=abonosDe(p.id).reduce((a,x)=>a+x.valor,0),pendiente=Math.max(0,p.valor-pagado),d=diasHasta(p.fechaLimite);
+  return {pagado:pagado,pendiente:pendiente,d:d,completo:pendiente<=0,vencido:pendiente>0&&d!=null&&d<0,hoy:pendiente>0&&d===0};
+}
+function pagosDeRes(rid,tipo){return S.pagos.filter(p=>p.reservaId===rid&&(!tipo||p.tipo===tipo)).sort((a,b)=>(a.orden-b.orden)||String(a.fechaLimite).localeCompare(String(b.fechaLimite)));}
+function etiquetaPago(p){
+  if(p.tipo==="pago")return [p.concepto,p.proveedor?"":p.categoria].filter(Boolean).join(" · ")||"Pago a proveedor";
+  const cs=pagosDeRes(p.reservaId,"cobro"),i=cs.findIndex(x=>x.id===p.id),n=cs.length,c=String(p.concepto||"").trim();
+  if(!c||/^cuota \d+$/i.test(c))return "Cuota "+(i+1)+(n>1?" de "+n:"");
+  return c+(n>1?" (cuota "+(i+1)+" de "+n+")":"");
+}
+function resumenCobros(r){
+  const cs=pagosDeRes(r.id,"cobro"),programado=cs.reduce((a,p)=>a+p.valor,0),pagado=cs.reduce((a,p)=>a+estadoPago(p).pagado,0);
+  const total=typeof r.valorTotal==="number"&&isFinite(r.valorTotal)?r.valorTotal:(cs.length?programado:null);
+  return {cs:cs,total:total,programado:programado,pagado:pagado,saldo:total!=null?Math.max(0,total-pagado):null,diferencia:total!=null?total-programado:0,moneda:r.monedaPagos||"COP"};
+}
+function pagosPendientes(){
+  return S.pagos.map(p=>({p:p,r:S.reservas.find(x=>x.id===p.reservaId),e:estadoPago(p)}))
+    .filter(x=>x.r&&x.r.estado!=="cancelada"&&x.e.pendiente>0)
+    .sort((a,b)=>String(a.p.fechaLimite).localeCompare(String(b.p.fechaLimite)));
+}
+function cuandoTxt(e,p){
+  if(e.completo)return "Pagado";
+  if(e.d==null)return "Sin fecha";
+  if(e.d<0)return "Venció hace "+(-e.d)+(e.d===-1?" día":" días")+" ("+RV.fmtFecha(p.fechaLimite)+")";
+  if(e.d===0)return "Vence hoy";
+  return "Vence en "+e.d+(e.d===1?" día":" días")+" ("+RV.fmtFecha(p.fechaLimite)+")";
+}
+function datosRecordatorio(p,r){
+  const e=estadoPago(p),rc=resumenCobros(r),ti=r.titular||{};
+  return {nombre:ti.nombre,asesor:((S.perfil||{}).nombre||"").trim().split(/\s+/)[0],concepto:etiquetaPago(p),destino:r.destino,reservaCodigo:RV.codigo(r.numero),
+    pendiente:e.pendiente,pagado:e.pagado,fecha:p.fechaLimite,dias:e.d,saldo:rc.saldo,moneda:p.moneda,datosPago:(S.config.pagos||{}).datosPago||""};
+}
+function pagoItemHTML(x,conReserva){
+  const p=x.p,r=x.r,e=x.e,cobro=p.tipo==="cobro",ti=r.titular||{};
+  const quien=cobro?(ti.nombre||"Cliente"):(p.proveedor||p.categoria||"Proveedor");
+  const tel=cobro&&ti.telefono&&!e.completo?D.enlaceWhatsApp(ti.telefono,RV.mensajeRecordatorio(datosRecordatorio(p,r))):null;
+  const puede=!S.readOnly&&puedeEditarRes(r);
+  return '<div class="seg-item pago-item'+(e.vencido?" vencido":"")+'"><div class="seg-top"><div style="min-width:0"><b style="overflow-wrap:anywhere">'+esc(quien)+'</b>'+
+      '<div class="help">'+esc(etiquetaPago(p))+(conReserva?' · '+esc(RV.codigo(r.numero))+(r.destino?' · '+esc(r.destino):''):'')+(!cobro&&p.categoria&&p.proveedor?' · '+esc(p.categoria):'')+'</div></div>'+
+      '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="pill '+(cobro?"pg-cobro":"pg-pago")+'">'+(cobro?"Por cobrar":"Por pagar")+'</span><b class="num">'+esc(fmtM(e.completo?p.valor:e.pendiente,p.moneda))+'</b></div></div>'+
+    '<div class="pago-meta"><span class="'+(e.vencido?"flag-bad":e.hoy?"flag":"help")+'">'+esc(cuandoTxt(e,p))+'</span>'+(e.pagado>0&&!e.completo?'<span class="help">Pagado '+esc(fmtM(e.pagado,p.moneda))+' de '+esc(fmtM(p.valor,p.moneda))+'</span>':'')+'</div>'+
+    '<div class="actions">'+
+      (!e.completo&&puede?'<button type="button" class="btn btn-gold btn-sm" data-pg-abono="'+esc(p.id)+'">'+(cobro?"Ya me pagó":"Ya pagué")+'</button>':'')+
+      (tel?'<a class="btn btn-sm" href="'+esc(tel)+'" target="_blank" rel="noopener" data-pg-rec="'+esc(p.id)+'">Recordar por WhatsApp</a>':'')+
+      (conReserva?'<button type="button" class="btn btn-sm btn-ghost" data-res="'+esc(r.id)+'">Ver reserva</button>':'')+'</div>'+
+    abonosHTML(p)+'</div>';
+}
+function abonosHTML(p){
+  const ab=abonosDe(p.id);if(!ab.length)return "";
+  return '<div class="abonos">'+ab.map(a=>'<div class="abono"><span class="num">'+esc(RV.fmtFecha(a.fecha))+' · <b>'+esc(fmtM(a.valor,p.moneda))+'</b>'+(a.medio?' · '+esc(a.medio):'')+(a.referencia?' · Ref. '+esc(a.referencia):'')+'</span>'+
+    '<span class="actions">'+(p.tipo==="cobro"&&a.numero?'<button type="button" class="btn btn-sm" data-pg-recibo="'+esc(a.id)+'">Recibo '+esc(RV.codigoRecibo(a.numero))+'</button>':'')+
+    (S.isAdmin?'<button type="button" class="btn btn-sm btn-ghost" data-pg-deshacer="'+esc(a.id)+'">Deshacer</button>':'')+'</span></div>').join("")+'</div>';
+}
+const puedeEditarRes=r=>S.isAdmin||r.asesorId===S.meId;
+function bindPagos(root){
+  root.querySelectorAll("[data-pg-abono]").forEach(b=>b.onclick=()=>abrirAbono(b.dataset.pgAbono));
+  root.querySelectorAll("[data-pg-recibo]").forEach(b=>b.onclick=()=>abrirRecibo(b.dataset.pgRecibo));
+  root.querySelectorAll("[data-pg-deshacer]").forEach(b=>b.onclick=()=>deshacerAbono(b.dataset.pgDeshacer));
+  root.querySelectorAll("[data-pg-rec]").forEach(a=>a.addEventListener("click",()=>{
+    const p=S.pagos.find(x=>x.id===a.dataset.pgRec),r=p&&S.reservas.find(x=>x.id===p.reservaId);
+    if(p&&r&&r.clienteId&&S.clientes.some(c=>c.id===r.clienteId)&&!S.readOnly)setTimeout(async()=>{
+      await api.agregarHistorial(r.clienteId,"WhatsApp","Recordatorio de pago enviado: "+etiquetaPago(p)+" de la reserva "+RV.codigo(r.numero)+" por "+fmtM(estadoPago(p).pendiente,p.moneda)+".");
+      await guardar(()=>api.actualizarCliente(r.clienteId,{ultimoContacto:new Date().toISOString()}));
+      toast("Recordatorio registrado en el historial de "+((r.titular||{}).nombre||"el cliente"));
+    },0);
+  }));
+  root.querySelectorAll("[data-res]").forEach(el=>el.onclick=()=>abrirReserva(el.dataset.res));
+}
+
+/* ----- Panel "Pagos de hoy" (Inicio) ----- */
+function panelPagosHoy(){
+  if(S.faltaPagos||S.faltaReservas)return "";
+  const l=pagosPendientes().filter(x=>x.e.d!=null&&x.e.d<=0);
+  const suma=t=>l.filter(x=>x.p.tipo===t).reduce((a,x)=>a+x.e.pendiente,0);
+  let h='<div class="panel panel-pad" id="pagosHoy"><div class="section-title"><h2>Pagos de hoy</h2><span class="pill '+(l.length?"est-vencida":"est-aceptada")+'">'+(l.length?l.length+" pendiente"+(l.length===1?"":"s"):"Al día")+'</span></div>';
+  if(!l.length)return h+'<p class="muted" style="margin:6px 0">No hay pagos que venzan hoy ni pagos vencidos. Los próximos están en el menú Pagos.</p></div>';
+  h+='<p class="help" style="margin:4px 0 0">Por cobrar: <b class="num">'+esc(fmtM(suma("cobro")))+'</b> · Por pagar: <b class="num">'+esc(fmtM(suma("pago")))+'</b>. Cada pago sigue aquí hasta que lo marques como pagado.</p>';
+  h+='<div class="seg-list">'+l.slice(0,6).map(x=>pagoItemHTML(x,true)).join("")+'</div>';
+  if(l.length>6)h+='<div style="margin-top:10px"><button type="button" class="btn btn-sm" data-view-go="pagos">Ver los '+l.length+' pagos</button></div>';
+  return h+'</div>';
+}
+
+/* ----- Vista Pagos ----- */
+function viewPagos(){
+  let h='<div class="page-head"><div><span class="eyebrow">Cuentas por cobrar y por pagar</span><h1>Pagos</h1></div></div>';
+  h+=bannerEstado();
+  if(S.faltaReservas||S.faltaPagos)return h+'<div class="panel empty"><h2 style="font-family:var(--f-display);font-size:22px">Falta activar los pagos</h2><p class="muted">'+(S.isAdmin?'Ejecuta en Supabase el archivo <b>'+(S.faltaReservas?"04-reservas.sql y luego 05-pagos.sql":"05-pagos.sql")+'</b> (SQL Editor → New query → pegar → Run).':'El administrador debe terminar de activar este módulo.')+'</p></div>';
+  const pend=pagosPendientes(),mes=hoyISO().slice(0,7);
+  const tot=(t,f)=>pend.filter(x=>x.p.tipo===t&&(!f||f(x))).reduce((a,x)=>a+x.e.pendiente,0);
+  const delMes=t=>S.abonos.filter(a=>String(a.fecha).slice(0,7)===mes&&(S.pagos.find(p=>p.id===a.pagoId)||{}).tipo===t).reduce((a,x)=>a+x.valor,0);
+  const venc=x=>x.e.d!=null&&x.e.d<0;
+  h+='<div class="kpis">'+
+    '<div class="kpi lead"><span class="k">Por cobrar a clientes</span><span class="v money">'+esc(fmtM(tot("cobro")))+'</span><span class="k">Vencido: '+esc(fmtM(tot("cobro",venc)))+'</span></div>'+
+    '<div class="kpi"><span class="k">Por pagar a proveedores</span><span class="v money" style="font-size:22px">'+esc(fmtM(tot("pago")))+'</span><span class="k">Vencido: '+esc(fmtM(tot("pago",venc)))+'</span></div>'+
+    '<div class="kpi"><span class="k">Recibido este mes</span><span class="v money" style="font-size:22px">'+esc(fmtM(delMes("cobro")))+'</span></div>'+
+    '<div class="kpi"><span class="k">Pagado este mes</span><span class="v money" style="font-size:22px">'+esc(fmtM(delMes("pago")))+'</span></div></div>';
+  h+='<div class="toolbar"><select class="input" id="pgTipo" style="width:auto;flex:1 1 180px" aria-label="Tipo de pago"><option value="todos">Por cobrar y por pagar</option><option value="cobro"'+(S.pTipo==="cobro"?" selected":"")+'>Solo por cobrar (clientes)</option><option value="pago"'+(S.pTipo==="pago"?" selected":"")+'>Solo por pagar (proveedores)</option></select>'+
+    '<select class="input" id="pgPer" style="width:auto;flex:1 1 220px" aria-label="Periodo"><option value="semana">Vencidos, hoy y próximos 7 días</option><option value="pendientes"'+(S.pPeriodo==="pendientes"?" selected":"")+'>Todos los pendientes</option><option value="pagados"'+(S.pPeriodo==="pagados"?" selected":"")+'>Pagos registrados</option></select></div>';
+  const tipoOk=x=>S.pTipo==="todos"||x.p.tipo===S.pTipo;
+  if(S.pPeriodo==="pagados"){
+    const ab=S.abonos.map(a=>{const p=S.pagos.find(x=>x.id===a.pagoId);return {a:a,p:p,r:p&&S.reservas.find(x=>x.id===p.reservaId)};}).filter(x=>x.p&&x.r&&(S.pTipo==="todos"||x.p.tipo===S.pTipo))
+      .sort((a,b)=>String(b.a.fecha).localeCompare(String(a.a.fecha))||String(b.a.registradoEn).localeCompare(String(a.a.registradoEn)));
+    h+='<div class="panel panel-pad" id="pgList">'+(ab.length?'<div class="list">'+ab.slice(0,200).map(x=>'<div class="row"><div class="row-main"><span class="row-title">'+esc(x.p.tipo==="cobro"?(x.r.titular||{}).nombre||"Cliente":x.p.proveedor||x.p.categoria||"Proveedor")+' · <span class="num">'+esc(fmtM(x.a.valor,x.p.moneda))+'</span></span>'+
+      '<span class="row-sub">'+esc(RV.fmtFecha(x.a.fecha))+' · '+esc(etiquetaPago(x.p))+' · '+esc(RV.codigo(x.r.numero))+(x.a.medio?' · '+esc(x.a.medio):'')+'</span></div>'+
+      '<span class="actions">'+(x.p.tipo==="cobro"&&x.a.numero?'<button type="button" class="btn btn-sm" data-pg-recibo="'+esc(x.a.id)+'">Recibo '+esc(RV.codigoRecibo(x.a.numero))+'</button>':'<span class="pill pg-pago">Pagado</span>')+'</span></div>').join("")+'</div>'
+      :'<p class="muted" style="margin:0">Aún no hay pagos registrados.</p>')+'</div>';
+    return h;
+  }
+  const l=pend.filter(tipoOk).filter(x=>S.pPeriodo==="pendientes"||(x.e.d!=null&&x.e.d<=7));
+  const grupos=[["Vencidos",x=>x.e.d!=null&&x.e.d<0],["Vencen hoy",x=>x.e.d===0],["Próximos 7 días",x=>x.e.d!=null&&x.e.d>0&&x.e.d<=7],["Más adelante",x=>x.e.d==null||x.e.d>7]];
+  h+='<div id="pgList">';
+  if(!l.length)h+='<div class="panel empty"><p class="muted">'+(S.pagos.length?"No hay pagos pendientes en este periodo.":"Aún no hay pagos programados. Ábre una reserva y toca <b>Programar pagos</b> para agregar las cuotas del cliente y los pagos a proveedores.")+'</p></div>';
+  grupos.forEach(([t,f])=>{const g=l.filter(f);if(g.length)h+='<div class="panel panel-pad"><div class="section-title"><h2>'+t+'</h2><span class="help num">'+g.length+' · '+esc(fmtM(g.reduce((a,x)=>a+x.e.pendiente,0)))+'</span></div><div class="seg-list">'+g.map(x=>pagoItemHTML(x,true)).join("")+'</div></div>';});
+  return h+'</div>';
+}
+function bindVistaPagos(v){
+  const t=v.querySelector("#pgTipo");if(t)t.onchange=()=>{S.pTipo=t.value;render();};
+  const p=v.querySelector("#pgPer");if(p)p.onchange=()=>{S.pPeriodo=p.value;render();};
+  bindPagos(v);
+}
+
+/* ----- Panel de pagos dentro de la reserva ----- */
+function panelPagosRes(r,puede){
+  if(S.faltaPagos)return '<div class="panel panel-pad"><h2>Pagos</h2><p class="muted" style="margin:0">'+(S.isAdmin?'Para activar los pagos, ejecuta en Supabase el archivo <b>05-pagos.sql</b>.':'El administrador debe activar el módulo de pagos.')+'</p></div>';
+  const rc=resumenCobros(r),pv=pagosDeRes(r.id,"pago"),mon=rc.moneda,ed=puede&&puedeEditarRes(r);
+  const pct=rc.total?Math.min(100,Math.round(rc.pagado/rc.total*100)):0;
+  const item=p=>pagoItemHTML({p:p,r:r,e:estadoPago(p)},false);
+  let h='<div class="panel panel-pad" id="resPagos" style="display:flex;flex-direction:column;gap:12px"><div class="section-title"><h2>Pagos</h2>'+(ed?'<button type="button" class="btn btn-sm btn-gold" id="rPlan">'+(rc.cs.length||pv.length?"Editar plan de pagos":"Programar pagos")+'</button>':'')+'</div>';
+  h+='<span class="fs-title">Pagos del cliente</span>';
+  if(rc.total!=null){
+    h+='<div class="pg-resumen"><div><span class="k">Valor del viaje</span><b class="num">'+esc(fmtM(rc.total,mon))+'</b></div><div><span class="k">Pagado</span><b class="num">'+esc(fmtM(rc.pagado,mon))+'</b></div><div><span class="k">Saldo</span><b class="num">'+esc(fmtM(rc.saldo,mon))+'</b></div></div>'+
+      '<div class="bar-track" aria-label="Pagado '+pct+'%"><div class="bar-fill" style="width:'+pct+'%"></div></div>';
+    if(rc.cs.length&&rc.diferencia!==0)h+='<div class="banner warn">'+(rc.diferencia>0?'Las cuotas suman '+esc(fmtM(rc.programado,mon))+': faltan <b>'+esc(fmtM(rc.diferencia,mon))+'</b> por programar.':'Las cuotas suman '+esc(fmtM(rc.programado,mon))+': <b>'+esc(fmtM(-rc.diferencia,mon))+'</b> más que el valor del viaje.')+'</div>';
+  }
+  h+=rc.cs.length?'<div class="seg-list" style="margin:0">'+rc.cs.map(item).join("")+'</div>':'<p class="muted" style="margin:0">Aún no hay cuotas programadas.</p>';
+  h+='<span class="fs-title">Pagos a proveedores</span>';
+  h+=pv.length?'<div class="seg-list" style="margin:0">'+pv.map(item).join("")+'</div>':'<p class="muted" style="margin:0">Aún no hay pagos a proveedores programados.</p>';
+  return h+'</div>';
+}
+
+/* ----- Editor del plan de pagos ----- */
+let PE=null,peErr=[];
+const planFirma=()=>JSON.stringify({v:PE.valorTotal,m:PE.moneda,c:PE.cobros,p:PE.pagos});
+function valorCotizacion(r){
+  const q=r.cotizacionId&&S.cotizaciones.find(x=>x.id===r.cotizacionId);if(!q)return null;
+  const c=D.calcular(q);if(!c.completo)return null;
+  if(c.multiple&&c.elegida==null)return null;
+  return Math.round(c.total);
+}
+function abrirPlanPagos(rid){
+  const r=S.reservas.find(x=>x.id===rid);if(!r)return;
+  const fila=p=>({id:p.id,concepto:p.concepto||"",proveedor:p.proveedor||"",categoria:p.categoria||"",valor:p.valor,fecha:p.fechaLimite||"",notas:p.notas||"",pagado:estadoPago(p).pagado});
+  const q=r.cotizacionId&&S.cotizaciones.find(x=>x.id===r.cotizacionId);
+  PE={rid:rid,valorTotal:typeof r.valorTotal==="number"?r.valorTotal:valorCotizacion(r),moneda:r.monedaPagos||(q?monedaDe(q):"COP"),
+    cobros:pagosDeRes(rid,"cobro").map(fila),pagos:pagosDeRes(rid,"pago").map(fila),borrar:[]};
+  PE.base=planFirma();peErr=[];
+  pintarPlan();
+}
+function sugerenciasProv(r){
+  const out=[],vistos=new Set(PE.pagos.map(p=>(p.proveedor||"").trim().toLowerCase()));
+  const add=(cat,n)=>{n=String(n||"").trim();if(n&&!vistos.has(n.toLowerCase())){vistos.add(n.toLowerCase());out.push([cat,n]);}};
+  (r.hoteles||[]).forEach(h=>add("Hotel",h.nombre));
+  (r.actividades||[]).forEach(sec=>(sec.items||[]).forEach(a=>add("Actividades",a.proveedor)));
+  (r.traslados||[]).forEach(t=>add("Traslados",t.proveedor));
+  (r.vuelos||[]).forEach(v=>add("Aerolínea",v.aerolinea));
+  add("Asistencia médica",(r.asistencia||{}).compania);
+  return out;
+}
+function peMoney(path,v,lbl,campo){return '<div class="field"><label>'+esc(lbl)+'</label><input class="input num'+(peErr.includes(campo)?" bad":"")+'" data-pe="'+path+'" data-t="money" inputmode="numeric" autocomplete="off" placeholder="$ 0" value="'+esc(montoTxt(v))+'"></div>';}
+function peDate(path,v,lbl,campo){return '<div class="field"><label>'+esc(lbl)+'</label><input class="input'+(peErr.includes(campo)?" bad":"")+'" type="date" data-pe="'+path+'" data-t="date" value="'+esc(v||"")+'"><span class="help" data-pefecha="'+path+'">'+(v?RV.fmtFechaDia(v):"DD/MM/AAAA")+'</span></div>';}
+function peText(path,v,lbl,o){o=o||{};return '<div class="field"><label>'+esc(lbl)+'</label><input class="input" data-pe="'+path+'" data-t="text" maxlength="'+(o.max||160)+'"'+(o.list?' list="'+o.list+'"':'')+(o.ph?' placeholder="'+esc(o.ph)+'"':'')+' value="'+esc(v||"")+'"></div>';}
+function pePieHTML(){
+  const prog=PE.cobros.reduce((a,x)=>a+(x.valor||0),0),tot=PE.valorTotal!=null?PE.valorTotal:prog,dif=tot-prog,m=PE.moneda;
+  return '<span>Cuotas: '+esc(fmtM(prog,m))+'</span><b>'+(PE.cobros.length?(dif===0?"Coinciden con el total":dif>0?"Faltan "+esc(fmtM(dif,m)):"Sobran "+esc(fmtM(-dif,m))):"Sin cuotas")+'</b>';
+}
+function pintarPlan(){
+  const r=S.reservas.find(x=>x.id===PE.rid);if(!r){closeOverlay("plan");return;}
+  const prev=document.querySelector("#overlayRoot .sheet.plan .ed-scroll"),top=prev?prev.scrollTop:0;
+  const sug=sugerenciasProv(r),m=PE.moneda;
+  const s=openOverlay(
+    '<div class="sheet-head"><h2>Plan de pagos · '+esc(RV.codigo(r.numero))+'</h2><button type="button" class="btn btn-ghost btn-sm" data-pe-a="close">Cerrar</button></div>'+
+    '<div class="ed-scroll"><div class="sheet-body">'+
+      (peErr.length?'<div class="errbox" role="alert">Revisa los datos marcados en rojo: cada pago necesita un valor mayor que cero y una fecha límite.</div>':'')+
+      '<span class="fs-title">Pagos del cliente</span>'+
+      '<div class="grid2">'+peMoney("valorTotal",PE.valorTotal,"Valor total del viaje","")+
+        '<div class="field"><label>Moneda</label><select class="input" data-pe="moneda" data-t="text">'+Object.keys(D.MONEDAS).map(k=>'<option value="'+k+'"'+(k===m?" selected":"")+'>'+esc(D.MONEDAS[k].l)+'</option>').join("")+'</select></div></div>'+
+      (valorCotizacion(r)!=null&&PE.valorTotal!==valorCotizacion(r)?'<p class="help" style="margin:0">La cotización vinculada suma '+esc(fmtM(valorCotizacion(r),m))+'. <button type="button" class="linkbtn" data-pe-a="usar-cot">Usar ese valor</button></p>':'')+
+      '<div class="rowlist">'+PE.cobros.map((x,i)=>'<div class="sub-card"><div class="opt-head"><b>Cuota '+(i+1)+'</b>'+(x.pagado>0?'<span class="help">Pagado '+esc(fmtM(x.pagado,m))+'</span>':'<button type="button" class="icon-btn" data-pe-a="del" data-l="cobros" data-i="'+i+'" aria-label="Quitar cuota '+(i+1)+'">'+icon(ICON_X,18)+'</button>')+'</div>'+
+        '<div class="grid3">'+peMoney("cobros."+i+".valor",x.valor,"Valor *","c"+i)+peDate("cobros."+i+".fecha",x.fecha,"Fecha límite de pago *","c"+i)+peText("cobros."+i+".concepto",x.concepto,"Concepto (opcional)",{ph:"Ej.: Anticipo"})+'</div></div>').join("")+'</div>'+
+      '<div class="actions"><button type="button" class="btn btn-sm" data-pe-a="add-cuota">'+icon(ICON_PLUS,16)+'Agregar cuota</button>'+
+        '<span class="pe-dividir">Dividir el total en <input class="input num" id="peN" type="number" min="1" max="24" value="'+Math.max(2,PE.cobros.length||2)+'" aria-label="Número de cuotas"> cuotas iguales <button type="button" class="btn btn-sm" data-pe-a="dividir">Dividir</button></span></div>'+
+      '<span class="fs-title">Pagos a proveedores</span>'+
+      '<div class="rowlist">'+PE.pagos.map((x,i)=>'<div class="sub-card"><div class="opt-head"><b>Pago '+(i+1)+'</b>'+(x.pagado>0?'<span class="help">Pagado '+esc(fmtM(x.pagado,m))+'</span>':'<button type="button" class="icon-btn" data-pe-a="del" data-l="pagos" data-i="'+i+'" aria-label="Quitar pago '+(i+1)+'">'+icon(ICON_X,18)+'</button>')+'</div>'+
+        '<div class="grid3"><div class="field"><label>Tipo de proveedor</label><select class="input" data-pe="pagos.'+i+'.categoria" data-t="text"><option value="">Elige…</option>'+CATEG_PROV.map(c=>'<option'+(c===x.categoria?" selected":"")+'>'+esc(c)+'</option>').join("")+'</select></div>'+
+        peText("pagos."+i+".proveedor",x.proveedor,"Proveedor",{ph:"Ej.: Hotel Las Américas",list:"dl_prov"})+peText("pagos."+i+".concepto",x.concepto,"Concepto",{ph:"Ej.: Saldo del hotel"})+
+        peMoney("pagos."+i+".valor",x.valor,"Valor *","p"+i)+peDate("pagos."+i+".fecha",x.fecha,"Fecha límite de pago *","p"+i)+peText("pagos."+i+".notas",x.notas,"Notas (opcional)",{max:500})+'</div></div>').join("")+'</div>'+
+      '<datalist id="dl_prov">'+sugerenciasProv(r).map(x=>'<option value="'+esc(x[1])+'">').join("")+'</datalist>'+
+      '<div class="actions"><button type="button" class="btn btn-sm" data-pe-a="add-prov">'+icon(ICON_PLUS,16)+'Agregar pago a proveedor</button>'+
+        sug.map(([c,n])=>'<button type="button" class="chip-toggle" data-pe-a="add-prov" data-cat="'+esc(c)+'" data-prov="'+esc(n)+'">'+icon(ICON_PLUS,14)+esc(n)+'</button>').join("")+'</div>'+
+    '</div></div>'+
+    '<div class="ed-foot"><div class="ed-total" id="pePie">'+pePieHTML()+'</div><div class="actions"><button type="button" class="btn" data-pe-a="close">Cancelar</button><button type="button" class="btn btn-gold" data-pe-a="save">Guardar plan de pagos</button></div></div>',
+    "wide editor plan","plan",{noBackdrop:true});
+  const sc=s.querySelector(".ed-scroll");if(sc)sc.scrollTop=top;
+  if(!s.dataset.bound){
+    s.dataset.bound="1";
+    const onIn=ev=>{const el=ev.target,path=el.dataset&&el.dataset.pe;if(!path)return;let v=el.value;
+      if(el.dataset.t==="money"){const d=v.replace(/[^\d]/g,"");v=d?parseInt(d,10):null;if(ev.type==="input"){const nv=montoTxt(v);if(el.value!==nv)el.value=nv;}}
+      setP(PE,path,v);el.classList.remove("bad");
+      if(el.dataset.t==="date"){const h=s.querySelector('[data-pefecha="'+path+'"]');if(h)h.textContent=v?RV.fmtFechaDia(v):"DD/MM/AAAA";}
+      const pie=s.querySelector("#pePie");if(pie)pie.innerHTML=pePieHTML();
+      if(path==="moneda"&&ev.type==="change")pintarPlan();};
+    s.addEventListener("input",onIn);s.addEventListener("change",onIn);
+    s.addEventListener("click",planClick);
+  }
+}
+async function planClick(ev){
+  const b=ev.target.closest("[data-pe-a]");if(!b)return;const a=b.dataset.peA;
+  const r=S.reservas.find(x=>x.id===PE.rid);
+  if(a==="close"){if(planFirma()!==PE.base&&!(await confirmar("¿Salir sin guardar?","Los cambios del plan de pagos se perderán.","Salir sin guardar",true)))return;closeOverlay("plan");PE=null;return;}
+  if(a==="usar-cot"){PE.valorTotal=valorCotizacion(r);pintarPlan();return;}
+  if(a==="add-cuota"){const ult=PE.cobros[PE.cobros.length-1];PE.cobros.push({concepto:"",valor:null,fecha:"",pagado:0});if(!ult&&PE.valorTotal)PE.cobros[0].valor=PE.valorTotal;pintarPlan();return;}
+  if(a==="dividir"){
+    if(PE.cobros.some(x=>x.pagado>0)){toast("Ya hay cuotas con pagos registrados: ajusta los valores a mano.");return;}
+    const n=Math.min(24,Math.max(1,parseInt((document.getElementById("peN")||{}).value,10)||0));
+    const total=PE.valorTotal!=null?PE.valorTotal:PE.cobros.reduce((s2,x)=>s2+(x.valor||0),0);
+    if(!n||!total){toast("Escribe primero el valor total del viaje.");return;}
+    const base=Math.floor(total/n/1000)*1000||Math.floor(total/n);
+    const nuevas=[];for(let i=0;i<n;i++){const prev=PE.cobros[i];nuevas.push({id:prev&&prev.id,concepto:prev?prev.concepto:"",fecha:prev?prev.fecha:"",pagado:0,valor:i===n-1?total-base*(n-1):base});}
+    PE.cobros.slice(n).forEach(x=>{if(x.id)PE.borrar.push(x.id);});
+    PE.cobros=nuevas;pintarPlan();toast("Total dividido en "+n+" cuotas. Pon la fecha límite de cada una.");return;
+  }
+  if(a==="add-prov"){PE.pagos.push({categoria:b.dataset.cat||"",proveedor:b.dataset.prov||"",concepto:"",valor:null,fecha:"",notas:"",pagado:0});pintarPlan();return;}
+  if(a==="del"){const l=PE[b.dataset.l],x=l[+b.dataset.i];if(x.pagado>0)return;if(x.id)PE.borrar.push(x.id);l.splice(+b.dataset.i,1);pintarPlan();return;}
+  if(a==="save")await guardarPlan();
+}
+async function guardarPlan(){
+  peErr=[];
+  PE.cobros.forEach((x,i)=>{if(!(x.valor>0)||!RV.fechaValida(x.fecha)||x.valor<x.pagado)peErr.push("c"+i);});
+  PE.pagos.forEach((x,i)=>{if(!(x.valor>0)||!RV.fechaValida(x.fecha)||x.valor<x.pagado)peErr.push("p"+i);});
+  if(peErr.length){pintarPlan();toast("Revisa los datos marcados");return;}
+  const r=S.reservas.find(x=>x.id===PE.rid);if(!r)return;
+  const btn=document.querySelector('#overlayRoot [data-pe-a="save"]');if(btn){btn.disabled=true;btn.textContent="Guardando…";}
+  const fallo=()=>{if(btn){btn.disabled=false;btn.textContent="Guardar plan de pagos";}};
+  for(const id of PE.borrar){if(!(await guardar(()=>api.borrarPago(id))))return fallo();}
+  PE.borrar=[];
+  const filas=[].concat(PE.cobros.map((x,i)=>Object.assign({tipo:"cobro",orden:i},x)),PE.pagos.map((x,i)=>Object.assign({tipo:"pago",orden:i},x)));
+  for(const x of filas){
+    const datos={concepto:String(x.concepto||"").trim(),proveedor:String(x.proveedor||"").trim(),categoria:x.categoria||"",valor:x.valor,moneda:PE.moneda,fechaLimite:x.fecha,orden:x.orden,notas:String(x.notas||"").trim()};
+    if(x.id){
+      const p=S.pagos.find(y=>y.id===x.id);
+      if(p&&["concepto","proveedor","categoria","valor","moneda","fechaLimite","orden","notas"].every(k=>(p[k]==null?"":p[k])===(datos[k]==null?"":datos[k])))continue;
+      if(!(await guardar(()=>api.actualizarPago(x.id,datos))))return fallo();
+    }else{
+      const row=await guardar(()=>api.crearPago(Object.assign({reservaId:r.id,tipo:x.tipo},datos)));
+      if(!row)return fallo();x.id=row.id;
+    }
+  }
+  if(r.valorTotal!==PE.valorTotal||(r.monedaPagos||"COP")!==PE.moneda){
+    if(!(await guardar(()=>api.actualizarReserva(r.id,{datos:{valorTotal:PE.valorTotal,monedaPagos:PE.moneda}}))))return fallo();
+  }
+  closeOverlay("plan");PE=null;toast("Plan de pagos guardado");
+}
+
+/* ----- Registrar un pago (abono) ----- */
+function abrirAbono(pid){
+  const p=S.pagos.find(x=>x.id===pid);if(!p)return;
+  const r=S.reservas.find(x=>x.id===p.reservaId),e=estadoPago(p),cobro=p.tipo==="cobro";
+  const s=openOverlay('<div class="sheet-head"><h2>'+(cobro?"Registrar pago recibido":"Registrar pago realizado")+'</h2><button class="btn btn-ghost btn-sm" id="abNo">Cerrar</button></div>'+
+    '<div class="sheet-body"><p class="muted" style="margin:0">'+esc(cobro?((r.titular||{}).nombre||"Cliente"):(p.proveedor||p.categoria||"Proveedor"))+' · '+esc(etiquetaPago(p))+' · '+esc(RV.codigo(r.numero))+'<br>Pendiente: <b class="num">'+esc(fmtM(e.pendiente,p.moneda))+'</b>'+(e.pagado?' (ya se pagaron '+esc(fmtM(e.pagado,p.moneda))+')':'')+'</p>'+
+    '<div class="grid2"><div class="field"><label for="abValor">Valor '+(cobro?"recibido":"pagado")+' *</label><input class="input num" id="abValor" inputmode="numeric" autocomplete="off" value="'+esc(montoTxt(e.pendiente))+'"><span class="help">Si fue un pago parcial, escribe solo lo que '+(cobro?"recibiste":"pagaste")+'.</span></div>'+
+      '<div class="field"><label for="abFecha">Fecha del pago *</label><input class="input" id="abFecha" type="date" value="'+hoyISO()+'"></div>'+
+      '<div class="field"><label for="abMedio">Medio de pago</label><select class="input" id="abMedio">'+MEDIOS_PAGO.map(x=>'<option>'+esc(x)+'</option>').join("")+'</select></div>'+
+      '<div class="field"><label for="abRef">Referencia o comprobante</label><input class="input" id="abRef" maxlength="120" placeholder="Ej.: número de la transferencia"></div></div>'+
+    '<div class="field"><label for="abNotas">Notas (opcional)</label><textarea class="input" id="abNotas" maxlength="1000" rows="2"></textarea></div>'+
+    '<div class="err" id="abErr" role="alert"></div>'+
+    '<div class="sheet-foot"><button class="btn" id="abCancel">Cancelar</button><button class="btn btn-gold" id="abSi">'+(cobro?"Guardar: ya me pagó":"Guardar: ya pagué")+'</button></div></div>',"","abono",{noBackdrop:true});
+  const v=s.querySelector("#abValor");v.oninput=()=>{v.value=fmtMontoInput(v.value);};
+  s.querySelector("#abNo").onclick=s.querySelector("#abCancel").onclick=()=>closeOverlay("abono");
+  s.querySelector("#abSi").onclick=async()=>{
+    const valor=parseMonto(v.value),fecha=s.querySelector("#abFecha").value,err=s.querySelector("#abErr");
+    if(!(valor>0)){err.textContent="Escribe el valor del pago.";return;}
+    if(valor>e.pendiente){err.textContent="El valor supera lo pendiente ("+fmtM(e.pendiente,p.moneda)+").";return;}
+    if(!RV.fechaValida(fecha)){err.textContent="Escribe la fecha del pago.";return;}
+    const b=s.querySelector("#abSi");b.disabled=true;b.textContent="Guardando…";
+    const ab=await guardar(()=>api.crearAbono({pagoId:p.id,valor:valor,fecha:fecha,medio:s.querySelector("#abMedio").value,referencia:s.querySelector("#abRef").value.trim(),notas:s.querySelector("#abNotas").value.trim()}));
+    if(!ab){b.disabled=false;b.textContent=cobro?"Guardar: ya me pagó":"Guardar: ya pagué";return;}
+    closeOverlay("abono");
+    if(cobro){
+      const rc=resumenCobros(r);
+      if(r.clienteId&&S.clientes.some(c=>c.id===r.clienteId))await api.agregarHistorial(r.clienteId,"Pago","Pago recibido: "+fmtM(valor,p.moneda)+" — "+etiquetaPago(p)+" de la reserva "+RV.codigo(r.numero)+" ("+s.querySelector("#abMedio").value+"). Saldo del viaje: "+fmtM(rc.saldo,p.moneda)+".");
+      if(await confirmar("Pago registrado","Se guardó el pago de "+fmtM(valor,p.moneda)+" con el recibo "+RV.codigoRecibo(ab.numero)+".\n¿Quieres ver el recibo para enviárselo al cliente?","Ver recibo",false))abrirRecibo(ab.id);
+    }else toast("Pago a "+(p.proveedor||"proveedor")+" registrado");
+  };
+}
+async function deshacerAbono(aid){
+  const a=S.abonos.find(x=>x.id===aid);if(!a)return;const p=S.pagos.find(x=>x.id===a.pagoId);
+  if(!(await confirmar("¿Deshacer este pago?","Se borrará el registro de "+fmtM(a.valor,p&&p.moneda)+" del "+RV.fmtFecha(a.fecha)+(a.numero?" (recibo "+RV.codigoRecibo(a.numero)+")":"")+". El pago volverá a quedar pendiente.","Deshacer",true)))return;
+  if(await guardar(()=>api.borrarAbono(aid))){
+    const r=p&&S.reservas.find(x=>x.id===p.reservaId);
+    if(r&&p.tipo==="cobro"&&r.clienteId&&S.clientes.some(c=>c.id===r.clienteId))await api.agregarHistorial(r.clienteId,"Pago","Se deshizo el pago de "+fmtM(a.valor,p.moneda)+(a.numero?" (recibo "+RV.codigoRecibo(a.numero)+")":"")+".");
+    toast("Pago deshecho");
+  }
+}
+
+/* ----- Recibo de pago ----- */
+function datosRecibo(aid){
+  const a=S.abonos.find(x=>x.id===aid);if(!a)return null;
+  const p=S.pagos.find(x=>x.id===a.pagoId),r=p&&S.reservas.find(x=>x.id===p.reservaId);if(!r)return null;
+  const rc=resumenCobros(r),todos=S.abonos.filter(x=>rc.cs.some(c=>c.id===x.pagoId));
+  const acum=todos.filter(x=>String(x.registradoEn)<=String(a.registradoEn)).reduce((s2,x)=>s2+x.valor,0);
+  return {numero:a.numero,fecha:a.fecha,valor:a.valor,moneda:p.moneda,medio:a.medio,referencia:a.referencia,notas:a.notas,titular:r.titular||{},reservaCodigo:RV.codigo(r.numero),destino:r.destino,
+    concepto:etiquetaPago(p),total:rc.total,pagadoAcum:acum,saldo:rc.total!=null?Math.max(0,rc.total-acum):null,asesorNombre:((S.perfil||{}).nombre||"").trim().split(/\s+/)[0],
+    proximas:rc.cs.map(c=>({concepto:etiquetaPago(c),fecha:c.fechaLimite,pendiente:estadoPago(c).pendiente})).filter(x=>x.pendiente>0)};
+}
+async function abrirRecibo(aid){
+  const d=datosRecibo(aid);if(!d){toast("No se encontró el pago.");return;}
+  const tel=(d.titular||{}).telefono;
+  const s=openOverlay('<div class="sheet-head"><h2>Recibo '+esc(RV.codigoRecibo(d.numero))+'</h2><button class="btn btn-ghost btn-sm" id="rcClose">Cerrar</button></div>'+
+    '<div class="sheet-body"><p class="help" id="rcStatus" style="margin:0" role="status">Generando el recibo…</p>'+
+    '<div class="actions" id="rcActs" hidden><button class="btn btn-gold" id="rcDown">Descargar recibo</button><button class="btn" id="rcOpen">Abrir PDF para compartir</button>'+(tel?'<a class="btn" id="rcWa" href="'+esc(D.enlaceWhatsApp(tel,RV.mensajeRecibo(d)))+'" target="_blank" rel="noopener">Abrir WhatsApp con el mensaje</a>':'')+'</div>'+
+    '<p class="help" style="margin:0;white-space:pre-line">'+esc(RV.mensajeRecibo(d))+'</p>'+
+    '<div class="pv-pages" id="rcPages"><p class="muted" style="margin:24px 0">Preparando…</p></div></div>',"wide","recibo");
+  s.querySelector("#rcClose").onclick=()=>closeOverlay("recibo");
+  const st=s.querySelector("#rcStatus");let bytes;
+  try{const PDFLib=await cargarPdfLib();bytes=await RV.generarRecibo(d,{PDFLib:PDFLib,logoPng:await logoPng()});}
+  catch(e){console.error(e);st.textContent="No se pudo cargar el generador de PDF. Revisa tu conexión a internet e intenta de nuevo.";st.className="err";s.querySelector("#rcPages").innerHTML="";return;}
+  if(!hayCapa("recibo"))return;
+  s.querySelector("#rcActs").hidden=false;
+  s.querySelector("#rcDown").onclick=()=>{descargarArchivo(RV.nombreRecibo(d),new Blob([bytes],{type:"application/pdf"}));toast("Recibo descargado: "+RV.nombreRecibo(d));};
+  s.querySelector("#rcOpen").onclick=()=>{const u=URL.createObjectURL(new Blob([bytes],{type:"application/pdf"}));const w=window.open(u,"_blank");if(!w)descargarArchivo(RV.nombreRecibo(d),new Blob([bytes],{type:"application/pdf"}));setTimeout(()=>URL.revokeObjectURL(u),60000);};
+  try{await renderPaginas(bytes,s.querySelector("#rcPages"));st.textContent="Recibo generado · "+kb(bytes.length)+" · "+RV.nombreRecibo(d);}
+  catch(e){console.error(e);st.textContent="El recibo se generó, pero la vista previa no se pudo mostrar en este dispositivo. Descárgalo para revisarlo.";s.querySelector("#rcPages").innerHTML="";}
+}
+
+/* ----- Datos para recibir pagos (Equipo, administrador) ----- */
+function datosPagoHTML(){
+  if(S.faltaPagos)return "";
+  return '<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Datos para recibir pagos</h2>'+
+    '<p class="help" style="margin:0">Se agregan al mensaje de recordatorio de pago que se envía por WhatsApp. Por ejemplo: banco, tipo y número de cuenta, Nequi y a nombre de quién.</p>'+
+    '<textarea class="input" id="dpTxt" maxlength="800" rows="4" placeholder="Ej.: Bancolombia ahorros 000-000000-00 a nombre de Diamond Travel · Nequi 305 205 1183">'+esc((S.config.pagos||{}).datosPago||"")+'</textarea>'+
+    '<div><button type="button" class="btn btn-gold" id="dpGuardar">Guardar datos de pago</button></div></div>';
+}
+function bindDatosPago(v){
+  const b=v.querySelector("#dpGuardar");if(!b)return;
+  b.onclick=async()=>{const val=Object.assign({},S.config.pagos||{},{datosPago:v.querySelector("#dpTxt").value.trim()});
+    if(await guardar(()=>api.guardarConfig("pagos",val))){S.config.pagos=val;toast("Datos de pago guardados");}};
+}
+
 /* ---------- Datos de prueba (solo administrador) ---------- */
 async function cargarDemo(){
   if(!S.isAdmin){toast("Solo el administrador puede cargar datos de prueba.");return;}
@@ -2003,7 +2377,7 @@ async function exportarJSON(){
   try{hist=await todas("historial","fecha");}catch(e){toast(explicarError(e));return;}
   const porCliente={};hist.forEach(h=>{(porCliente[h.cliente_id]=porCliente[h.cliente_id]||[]).push({id:h.id,fecha:h.fecha,tipo:h.tipo,texto:h.texto,autor:h.autor});});
   const data={sistema:"Diamond Travel CRM",version:3,formato:"web",exportadoEn:new Date().toISOString(),exportadoPor:(S.perfil||{}).email||"",
-    clientes:S.clientes.map(c=>Object.assign({},c,{historial:porCliente[c.id]||[]})),cotizaciones:S.cotizaciones.map(q=>Object.assign({},q)),plantillas:S.plantillas.map(p=>Object.assign({},p)),solicitudes:S.solicitudes.map(x=>Object.assign({},x)),reservas:S.reservas.map(x=>Object.assign({},x))};
+    clientes:S.clientes.map(c=>Object.assign({},c,{historial:porCliente[c.id]||[]})),cotizaciones:S.cotizaciones.map(q=>Object.assign({},q)),plantillas:S.plantillas.map(p=>Object.assign({},p)),solicitudes:S.solicitudes.map(x=>Object.assign({},x)),reservas:S.reservas.map(x=>Object.assign({},x)),pagos:S.pagos.map(x=>Object.assign({},x)),abonos:S.abonos.map(x=>Object.assign({},x))};
   descargar("diamond-travel-respaldo-"+sello()+".json",JSON.stringify(data,null,2));
 }
 const celdaCSV=v=>{v=v==null?"":String(v);return /[";\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
@@ -2096,6 +2470,20 @@ function importar(input){
         if(r.error){msg.innerHTML='<p class="err">Se detuvo al restaurar reservas: '+esc(explicarError(r.error))+'</p>';return;}
       }
       try{await S.sb.rpc("ajustar_consecutivo_reservas");}catch(_){}
+      // Pagos y abonos (los abonos solo se agregan; nunca se modifican)
+      const resIds=new Set(rs.map(r=>r.id).concat(S.reservas.map(r=>r.id)));
+      const pgs=(Array.isArray(data.pagos)?data.pagos:[]).filter(x=>x&&esUUID(x.id)&&resIds.has(x.reservaId)&&x.valor>0&&D.fechaValida(x.fechaLimite));
+      if(pgs.length&&!S.faltaPagos){
+        const r1=await S.sb.from("pagos").upsert(pgs.map(x=>Object.assign(aFilaPago(x),{id:x.id})),{onConflict:"id"});
+        if(r1.error){msg.innerHTML='<p class="err">Se detuvo al restaurar pagos: '+esc(explicarError(r1.error))+'</p>';return;}
+        const pids=new Set(pgs.map(x=>x.id));
+        const abs=(Array.isArray(data.abonos)?data.abonos:[]).filter(a=>a&&esUUID(a.id)&&pids.has(a.pagoId)&&a.valor>0).sort((a,b)=>String(a.registradoEn).localeCompare(String(b.registradoEn)));
+        for(const a of abs){
+          const r2=await S.sb.from("abonos").upsert({id:a.id,pago_id:a.pagoId,numero:a.numero==null?null:a.numero,valor:a.valor,fecha:a.fecha,medio:a.medio||"",referencia:a.referencia||"",notas:a.notas||"",registrado_por:esUUID(a.registradoPor)&&equipoIds.has(a.registradoPor)?a.registradoPor:S.meId,registrado_en:a.registradoEn||new Date().toISOString()},{onConflict:"id",ignoreDuplicates:true});
+          if(r2.error)console.error(r2.error);
+        }
+        try{await S.sb.rpc("ajustar_consecutivo_recibos");}catch(_){}
+      }
     }
     try{await S.sb.rpc("ajustar_consecutivo");}catch(_){}
     await recargarTodo();
@@ -2146,7 +2534,7 @@ function ponerLocal(lista,obj){
   refrescarTodo();
 }
 function quitarLocal(lista,id){S[lista]=S[lista].filter(x=>x.id!==id);refrescarTodo();}
-const DATOS_RES=["titular","asesorNombre","fechaInicio","fechaFin","pasajeros","vuelos","hoteles","traslados","actividades","incluye","asistencia","recomendaciones","notas","historialEstados"];
+const DATOS_RES=["valorTotal","monedaPagos","titular","asesorNombre","fechaInicio","fechaFin","pasajeros","vuelos","hoteles","traslados","actividades","incluye","asistencia","recomendaciones","notas","historialEstados"];
 function aFilaRes(r){
   const d={};DATOS_RES.forEach(k=>{if(r[k]!==undefined)d[k]=r[k];});
   const f=RV.fechasViaje(r);
@@ -2162,6 +2550,14 @@ function deFilaRes(row){
   if(!r.historialEstados)r.historialEstados=[];
   return r;
 }
+function aFilaPago(o){
+  const f={};const m={reservaId:"reserva_id",tipo:"tipo",concepto:"concepto",proveedor:"proveedor",categoria:"categoria",valor:"valor",moneda:"moneda",fechaLimite:"fecha_limite",orden:"orden",notas:"notas"};
+  Object.keys(m).forEach(k=>{if(o[k]!==undefined)f[m[k]]=o[k];});
+  ["concepto","proveedor","categoria","notas"].forEach(k=>{if(f[k]==null&&o[k]!==undefined)f[k]="";});
+  return f;
+}
+function deFilaPago(r){return {id:r.id,reservaId:r.reserva_id,tipo:r.tipo,concepto:r.concepto||"",proveedor:r.proveedor||"",categoria:r.categoria||"",valor:Number(r.valor),moneda:r.moneda||"COP",fechaLimite:r.fecha_limite,orden:r.orden||0,notas:r.notas||"",creadoPor:r.creado_por,creadoEn:r.creado_en,actualizadoEn:r.actualizado_en};}
+function deFilaAbono(r){return {id:r.id,pagoId:r.pago_id,numero:r.numero==null?null:Number(r.numero),valor:Number(r.valor),fecha:r.fecha,medio:r.medio||"",referencia:r.referencia||"",notas:r.notas||"",registradoPor:r.registrado_por,registradoEn:r.registrado_en};}
 const sinPermiso={code:"42501",message:"permission denied"};
 const api={
   async crearCliente(o){const r=await S.sb.from("clientes").insert(aFilaCliente(o)).select().single();if(r.error)return r;const c=deFilaCliente(r.data);ponerLocal("clientes",c);return {data:c};},
@@ -2210,11 +2606,18 @@ const api={
   },
   async actualizarReserva(id,o){
     const f={};if(o.estado)f.estado=o.estado;if(o.voucherEnviadoEn!==undefined)f.voucher_enviado_en=o.voucherEnviadoEn;
-    if(o.historialEstados){const r=S.reservas.find(x=>x.id===id);if(r)f.datos=Object.assign(aFilaRes(r).datos,{historialEstados:o.historialEstados});}
+    if(o.historialEstados||o.datos){const r=S.reservas.find(x=>x.id===id);if(r)f.datos=Object.assign(aFilaRes(r).datos,o.datos||{},o.historialEstados?{historialEstados:o.historialEstados}:{});}
     const q=await S.sb.from("reservas").update(f).eq("id",id).select();if(q.error)return q;if(!q.data.length)return {error:sinPermiso};
     const x=deFilaRes(q.data[0]);ponerLocal("reservas",x);return {data:x};
   },
-  async borrarReserva(id){const q=await S.sb.from("reservas").delete().eq("id",id).select("id");if(q.error)return q;if(!q.data.length)return {error:sinPermiso};quitarLocal("reservas",id);return {data:true};},
+  async borrarReserva(id){const q=await S.sb.from("reservas").delete().eq("id",id).select("id");if(q.error)return q;if(!q.data.length)return {error:sinPermiso};
+    const pids=new Set(S.pagos.filter(p=>p.reservaId===id).map(p=>p.id));S.pagos=S.pagos.filter(p=>!pids.has(p.id));S.abonos=S.abonos.filter(a=>!pids.has(a.pagoId));
+    quitarLocal("reservas",id);return {data:true};},
+  async crearPago(o){const q=await S.sb.from("pagos").insert(aFilaPago(o)).select().single();if(q.error)return q;const x=deFilaPago(q.data);ponerLocal("pagos",x);return {data:x};},
+  async actualizarPago(id,o){const f=aFilaPago(o);delete f.reserva_id;delete f.tipo;const q=await S.sb.from("pagos").update(f).eq("id",id).select();if(q.error)return q;if(!q.data.length)return {error:sinPermiso};const x=deFilaPago(q.data[0]);ponerLocal("pagos",x);return {data:x};},
+  async borrarPago(id){const q=await S.sb.from("pagos").delete().eq("id",id).select("id");if(q.error)return q;if(!q.data.length)return {error:sinPermiso};S.abonos=S.abonos.filter(a=>a.pagoId!==id);quitarLocal("pagos",id);return {data:true};},
+  async crearAbono(o){const q=await S.sb.from("abonos").insert({pago_id:o.pagoId,valor:o.valor,fecha:o.fecha,medio:o.medio||"",referencia:o.referencia||"",notas:o.notas||"",registrado_por:S.meId}).select().single();if(q.error)return q;const x=deFilaAbono(q.data);ponerLocal("abonos",x);return {data:x};},
+  async borrarAbono(id){const q=await S.sb.from("abonos").delete().eq("id",id).select("id");if(q.error)return q;if(!q.data.length)return {error:sinPermiso};quitarLocal("abonos",id);return {data:true};},
   async actualizarPerfil(id,patch){const r=await S.sb.from("perfiles").update(patch).eq("id",id).select();if(r.error)return r;if(!r.data.length)return {error:sinPermiso};return {data:r.data[0]};}
 };
 
@@ -2237,6 +2640,9 @@ const tablaFalta=e=>e&&(e.code==="42P01"||e.code==="PGRST205"||/does not exist|C
 async function cargarExtras(){ // tablas de la actualización 2: si aún no existen, el resto del CRM sigue funcionando
   try{S.plantillas=(await todas("plantillas","actualizado_en")).map(deFilaPlantilla);S.segs=(await todas("seguimientos","fecha")).map(deFilaSeg);S.faltaActualizacion=false;}
   catch(e){if(tablaFalta(e)){S.faltaActualizacion=true;S.plantillas=[];S.segs=[];}else console.error(e);}
+  // tablas de la actualización 5 (pagos)
+  try{const pg=await todas("pagos","fecha_limite"),ab=await todas("abonos","registrado_en");S.pagos=pg.map(deFilaPago);S.abonos=ab.map(deFilaAbono);S.faltaPagos=false;}
+  catch(e){if(tablaFalta(e)){S.faltaPagos=true;S.pagos=[];S.abonos=[];}else console.error(e);}
   // tabla de la actualización 4 (reservas)
   try{S.reservas=(await todas("reservas","numero")).map(deFilaRes);S.faltaReservas=false;}
   catch(e){if(tablaFalta(e)){S.faltaReservas=true;S.reservas=[];}else console.error(e);}
@@ -2299,6 +2705,8 @@ function suscribir(){
     .on("postgres_changes",{event:"*",schema:"public",table:"historial"},p=>{const id=(p.new&&p.new.cliente_id)||(p.old&&p.old.cliente_id);if(id&&S.hist[id])luego("h"+id,()=>cargarHistorial(id));})
     .on("postgres_changes",{event:"*",schema:"public",table:"plantillas"},()=>luego("pl",async()=>{await cargarExtras();refrescarTodo();}))
     .on("postgres_changes",{event:"*",schema:"public",table:"seguimientos"},()=>luego("sg",async()=>{await cargarExtras();refrescarTodo();}))
+    .on("postgres_changes",{event:"*",schema:"public",table:"pagos"},()=>luego("pg",async()=>{await cargarExtras();refrescarTodo();}))
+    .on("postgres_changes",{event:"*",schema:"public",table:"abonos"},()=>luego("pg",async()=>{await cargarExtras();refrescarTodo();}))
     .on("postgres_changes",{event:"*",schema:"public",table:"reservas"},()=>luego("rs",async()=>{await cargarExtras();refrescarTodo();}))
     .on("postgres_changes",{event:"*",schema:"public",table:"solicitudes"},p=>luego("so",async()=>{
       await cargarExtras();refrescarTodo();
@@ -2426,7 +2834,7 @@ async function entrar(session){
 async function cerrarSesion(){
   try{if(S.canal)S.sb.removeChannel(S.canal);}catch(_){}
   await S.sb.auth.signOut();
-  Object.assign(S,{session:null,perfil:null,equipo:[],config:{},hist:{},clientes:[],cotizaciones:[],plantillas:[],segs:[],solicitudes:[],reservas:[],resReady:false,ready:false,cotReady:false,meId:null,isAdmin:false,loadError:null});
+  Object.assign(S,{session:null,perfil:null,equipo:[],config:{},hist:{},clientes:[],cotizaciones:[],plantillas:[],segs:[],solicitudes:[],reservas:[],resReady:false,pagos:[],abonos:[],ready:false,cotReady:false,meId:null,isAdmin:false,loadError:null});
   mostrarAuth("login");
 }
 function abrirMiCuenta(){
@@ -2531,6 +2939,7 @@ function viewEquipo(){
     '<label class="check"><input type="checkbox" id="eqVer"'+(ver?" checked":"")+'> Los asesores pueden ver todos los clientes y cotizaciones</label>'+
     '<p class="help" style="margin:0">Desmarcado (recomendado): cada asesor ve solo sus clientes y cotizaciones. El administrador siempre ve todo. Solo el administrador puede borrar registros.</p></div>';
   h+=formularioHTML();
+  h+=datosPagoHTML();
   h+=editorSeguimientosHTML();
   h+='<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Agregar a un asesor</h2><ol class="steps">'+
     '<li>Entra a <b>supabase.com</b>, abre el proyecto <b>diamond-travel-crm</b> y ve a <b>Authentication → Users</b>.</li>'+
@@ -2543,6 +2952,7 @@ function viewEquipo(){
 function bindEquipo(v){
   bindEditorSeguimientos(v);
   bindFormulario(v);
+  bindDatosPago(v);
   v.querySelectorAll("[data-eq-rol]").forEach(sel=>sel.onchange=async()=>{
     const id=sel.dataset.eqRol;
     if(id===S.meId&&sel.value!=="admin"&&!(await confirmar("¿Quitarte el rol de administrador?","Perderás el acceso a Equipo y a las funciones de administrador.","Sí, cambiar mi rol",true))){render();return;}

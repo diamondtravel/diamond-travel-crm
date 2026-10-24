@@ -148,7 +148,7 @@ begin
     || case when t_flex then ' · Fechas flexibles' else '' end
     || ' · Adultos: ' || n_adultos
     || case when n_ninos > 0 then ' · Niños: ' || n_ninos || case when t_edades <> '' then ' (edades: ' || t_edades || ')' else '' end else '' end
-    || case when n_presup is not null then ' · Presupuesto aprox.: $' || to_char(n_presup, 'FM999G999G999G999') else '' end
+    || case when n_presup is not null then ' · Presupuesto aprox.: $' || replace(to_char(n_presup, 'FM999,999,999,999'), ',', '.') else '' end
     || case when t_ciudad <> '' then ' · Sale desde: ' || t_ciudad else '' end
     || case when t_conocio <> '' then ' · Nos conoció por: ' || t_conocio else '' end
     || case when t_coment <> '' then E'\nComentarios: ' || t_coment else '' end;

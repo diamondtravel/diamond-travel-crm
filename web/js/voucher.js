@@ -608,11 +608,135 @@ async function generarPDF(r, opts) {
   return await doc.save();
 }
 
+/* ---------- Pagos: recibo de pago y mensajes ---------- */
+function fmtMoneda(n, moneda) {
+  if (!esNum(n)) return "";
+  const m = ["COP", "USD", "EUR"].includes(moneda) ? moneda : "COP";
+  return (n < 0 ? "- " : "") + new Intl.NumberFormat("es-CO", { style: "currency", currency: m, maximumFractionDigits: 0, minimumFractionDigits: 0 }).format(Math.abs(Math.round(n))).replace(/ /g, " ");
+}
+function codigoRecibo(n) { return esNum(n) ? "RC-" + String(n).padStart(4, "0") : "Sin número"; }
+function nombreRecibo(d) { const n = slug((d.titular || {}).nombre); return "Recibo-" + codigoRecibo(d.numero) + (n ? "-" + n : "") + ".pdf"; }
+/* d: {numero, fecha, valor, moneda, medio, referencia, notas, titular, reservaCodigo, destino, concepto, total, pagadoAcum, saldo, proximas:[{concepto, fecha, pendiente}], registradoPor} */
+function mensajeRecibo(d) {
+  const nombre = s((d.titular || {}).nombre).split(/\s+/)[0] || "";
+  const l = [
+    "Hola" + (nombre ? " " + nombre : "") + ", te saluda " + (s(d.asesorNombre) ? s(d.asesorNombre) + " de " : "") + "Diamond Travel.",
+    "Confirmamos que recibimos tu pago de " + fmtMoneda(d.valor, d.moneda) + " (" + s(d.concepto) + ") de tu viaje" + (s(d.destino) ? " a " + s(d.destino) : "") + (s(d.reservaCodigo) ? " (reserva " + s(d.reservaCodigo) + ")" : "") + ".",
+    "Te comparto el recibo " + codigoRecibo(d.numero) + "."
+  ];
+  if (esNum(d.saldo)) l.push(d.saldo > 0 ? "Saldo pendiente del viaje: " + fmtMoneda(d.saldo, d.moneda) + "." : "¡Tu viaje quedó totalmente pagado!");
+  l.push("Gracias por confiar en Diamond Travel.");
+  return l.join("\n");
+}
+/* x: {nombre, asesor, concepto, destino, reservaCodigo, pendiente, pagado, fecha, dias, saldo, moneda, datosPago} */
+function mensajeRecordatorio(x) {
+  const nombre = s(x.nombre).split(/\s+/)[0] || "";
+  const cuando = x.dias === 0 ? "hoy vence" : x.dias < 0 ? "el " + fmtFecha(x.fecha) + " venció" : "el " + fmtFecha(x.fecha) + " vence";
+  const l = [
+    "Hola" + (nombre ? " " + nombre : "") + ", te saluda " + (s(x.asesor) ? s(x.asesor) + " de " : "") + "Diamond Travel.",
+    "Te recordamos que " + cuando + " " + (/^cuota/i.test(s(x.concepto)) ? "la " + s(x.concepto).charAt(0).toLowerCase() + s(x.concepto).slice(1) : "el pago “" + s(x.concepto) + "”") +
+      " de tu viaje" + (s(x.destino) ? " a " + s(x.destino) : "") + (s(x.reservaCodigo) ? " (reserva " + s(x.reservaCodigo) + ")" : "") + ", por " + fmtMoneda(x.pendiente, x.moneda) + "."
+  ];
+  if (x.pagado > 0) l.push("De esta cuota ya recibimos " + fmtMoneda(x.pagado, x.moneda) + ".");
+  if (esNum(x.saldo) && x.saldo > x.pendiente) l.push("Saldo total pendiente del viaje: " + fmtMoneda(x.saldo, x.moneda) + ".");
+  if (s(x.datosPago)) l.push("Puedes pagar así:\n" + s(x.datosPago));
+  l.push("Cuando realices el pago, envíanos el comprobante por aquí. ¡Gracias!");
+  return l.join("\n");
+}
+async function generarRecibo(d, opts) {
+  const { PDFDocument, StandardFonts, rgb } = opts.PDFLib;
+  const col = a => rgb(a[0] / 255, a[1] / 255, a[2] / 255);
+  const doc = await PDFDocument.create();
+  doc.setTitle("Recibo de pago " + codigoRecibo(d.numero) + " — Diamond Travel");
+  doc.setAuthor("Diamond Travel"); doc.setCreator("Diamond Travel CRM"); doc.setProducer("Diamond Travel CRM");
+  const F = { reg: await doc.embedFont(StandardFonts.Helvetica), bold: await doc.embedFont(StandardFonts.HelveticaBold), disp: await doc.embedFont(StandardFonts.TimesRomanBold) };
+  const charset = new Set(F.reg.getCharacterSet());
+  const limpio = t => { let o = ""; for (const ch of String(t == null ? "" : t).normalize("NFC")) { const m = ch === " " || ch === " " ? " " : ch; if (m === "\n" || charset.has(m.codePointAt(0))) o += m; } return o; };
+  const logo = opts.logoPng ? await doc.embedPng(opts.logoPng) : null;
+  const W = 595.28, H = 841.89, ML = 16 * MM, CW = W - 2 * ML;
+  const page = doc.addPage([W, H]);
+  const T = (txt, x, yy, o) => { const t = limpio(txt); if (t) page.drawText(t, { x, y: H - yy, size: o.size, font: o.font || F.reg, color: col(o.color || C.ink) }); };
+  const wd = (txt, f, sz) => f.widthOfTextAtSize(limpio(txt), sz);
+  const TR = (txt, xr, yy, o) => T(txt, xr - wd(txt, o.font || F.reg, o.size), yy, o);
+  const rect = (x, yy, w, h, fill, stroke) => page.drawRectangle({ x, y: H - yy - h, width: w, height: h, color: fill ? col(fill) : undefined, borderColor: stroke ? col(stroke) : undefined, borderWidth: stroke ? 0.8 : 0 });
+  const line = (x1, y1, x2, y2, c, th) => page.drawLine({ start: { x: x1, y: H - y1 }, end: { x: x2, y: H - y2 }, thickness: th || 0.6, color: col(c) });
+  const mon = d.moneda || "COP";
+  // Encabezado
+  const BH = 118;
+  rect(0, 0, W, BH, C.navy); rect(0, BH, W, 2.2, C.gold);
+  if (logo) { const lh = 92, lw = lh * logo.width / logo.height; page.drawImage(logo, { x: ML - 4, y: H - 12 - lh, width: lw, height: lh }); }
+  const lab = "RECIBO DE PAGO"; let cx = W - ML; const sp = 1.6;
+  { let w = 0; for (const ch of limpio(lab)) w += wd(ch, F.bold, 8.5) + sp; cx -= w - sp; for (const ch of limpio(lab)) { T(ch, cx, 38, { size: 8.5, font: F.bold, color: C.gold }); cx += wd(ch, F.bold, 8.5) + sp; } }
+  TR(codigoRecibo(d.numero), W - ML, 68, { size: 26, font: F.disp, color: C.white });
+  TR("Fecha del pago: " + fmtFecha(d.fecha), W - ML, 88, { size: 9.5, color: C.onNavyMuted });
+  let y = BH + 30;
+  // Recibido de
+  T("RECIBIMOS DE", ML, y, { size: 7.5, font: F.bold, color: C.goldInk });
+  T(s((d.titular || {}).nombre) || "—", ML, y + 20, { size: 16, font: F.bold, color: C.navy });
+  const cont = [fmtTel((d.titular || {}).telefono), s((d.titular || {}).email)].filter(Boolean).join("   ·   ");
+  if (cont) T(cont, ML, y + 36, { size: 9.5, color: C.muted });
+  y += 58;
+  // Valor
+  const bh = 74;
+  rect(ML, y, CW, bh, C.goldSoft); rect(ML, y, 3, bh, C.gold);
+  T("VALOR RECIBIDO", ML + 16, y + 22, { size: 8, font: F.bold, color: C.goldInk });
+  T(fmtMoneda(d.valor, mon), ML + 16, y + 52, { size: 26, font: F.bold, color: C.navy });
+  const x2 = ML + CW * 0.56;
+  T("CONCEPTO", x2, y + 22, { size: 8, font: F.bold, color: C.goldInk });
+  let cy = y + 38;
+  const conc = s(d.concepto) + (s(d.destino) ? " — viaje a " + s(d.destino) : "");
+  // envolver concepto
+  const palabras = limpio(conc).split(/ +/); let cur = "";
+  palabras.forEach(w => { const c2 = cur ? cur + " " + w : w; if (wd(c2, F.bold, 10.5) > CW * 0.42) { T(cur, x2, cy, { size: 10.5, font: F.bold, color: C.ink }); cy += 13; cur = w; } else cur = c2; });
+  if (cur) T(cur, x2, cy, { size: 10.5, font: F.bold, color: C.ink });
+  if (s(d.reservaCodigo)) T("Reserva " + s(d.reservaCodigo), x2, Math.min(cy + 15, y + bh - 8), { size: 9, color: C.muted });
+  y += bh + 22;
+  // Detalle del pago
+  const fila = (k, v, negrita) => { if (!s(v)) return; T(k, ML, y + 11, { size: 9.5, color: C.muted }); TR(v, ML + CW, y + 11, { size: 10.5, font: negrita ? F.bold : F.reg, color: negrita ? C.navy : C.ink }); y += 20; line(ML, y, ML + CW, y, C.line, 0.5); y += 2; };
+  T("Detalle", ML, y + 11, { size: 13, font: F.bold, color: C.navy }); rect(ML, y + 17, 26, 1.6, C.gold); y += 30;
+  fila("Medio de pago", s(d.medio));
+  fila("Referencia o comprobante", s(d.referencia));
+  fila("Notas", s(d.notas));
+  if (esNum(d.total)) fila("Valor total del viaje", fmtMoneda(d.total, mon));
+  if (esNum(d.pagadoAcum)) fila("Total pagado a la fecha", fmtMoneda(d.pagadoAcum, mon), true);
+  if (esNum(d.saldo)) fila("Saldo pendiente", d.saldo > 0 ? fmtMoneda(d.saldo, mon) : "Viaje totalmente pagado", true);
+  // Próximas cuotas
+  const prox = (d.proximas || []).filter(x => x.pendiente > 0);
+  if (prox.length) {
+    y += 14; T("Próximas cuotas", ML, y + 11, { size: 13, font: F.bold, color: C.navy }); rect(ML, y + 17, 26, 1.6, C.gold); y += 30;
+    rect(ML, y, CW, 20, C.navy);
+    T("CUOTA", ML + 8, y + 13.5, { size: 8, font: F.bold, color: C.white }); T("FECHA LÍMITE", ML + CW * 0.55, y + 13.5, { size: 8, font: F.bold, color: C.white }); TR("VALOR PENDIENTE", ML + CW - 8, y + 13.5, { size: 8, font: F.bold, color: C.white });
+    y += 20;
+    prox.slice(0, 12).forEach((x, i) => {
+      if (i % 2) rect(ML, y, CW, 20, C.zebra);
+      T(s(x.concepto), ML + 8, y + 13.5, { size: 9.5 }); T(fmtFecha(x.fecha), ML + CW * 0.55, y + 13.5, { size: 9.5 }); TR(fmtMoneda(x.pendiente, mon), ML + CW - 8, y + 13.5, { size: 9.5, font: F.bold, color: C.navy });
+      y += 20; line(ML, y, ML + CW, y, C.line, 0.5);
+    });
+  }
+  // Nota y contacto
+  y += 26;
+  T("Este recibo es un soporte del pago recibido por Diamond Travel. No reemplaza la factura electrónica.", ML, y, { size: 8.5, color: C.muted });
+  y += 26;
+  const hh = 62;
+  rect(ML, y, CW, hh, C.navy); rect(ML, y + hh, CW, 2, C.gold);
+  T("Gracias por viajar con Diamond Travel", ML + 16, y + 26, { size: 14, font: F.disp, color: C.white });
+  T(AGENCIA.correo + "  ·  " + AGENCIA.instagram, ML + 16, y + 44, { size: 8.5, color: C.onNavyMuted });
+  T("CONTACTO", ML + CW * 0.62, y + 20, { size: 7, font: F.bold, color: C.gold });
+  T("WhatsApp " + AGENCIA.whatsappTxt, ML + CW * 0.62, y + 35, { size: 10, font: F.bold, color: C.white });
+  T("Emergencias 24/7: " + AGENCIA.emergenciaTxt, ML + CW * 0.62, y + 50, { size: 8.5, color: C.onNavyMuted });
+  // Pie
+  line(ML, H - 48, W - ML, H - 48, C.gold, 0.7);
+  T("Diamond Travel  ·  WhatsApp " + AGENCIA.whatsappTxt + "  ·  " + AGENCIA.correo, ML, H - 34, { size: 7.5, color: C.muted });
+  T(AGENCIA.direccion, ML, H - 23, { size: 7.5, color: C.muted });
+  return await doc.save();
+}
+
 const API = {
   AGENCIA, ESTADOS, TIPOS_PAX, TIPOS_DOC, TIPOS_TRAYECTO, ALIMENTACION, SUG_INCLUYE, RECOMENDACIONES,
   codigo, fmtFecha, fmtFechaDia, fmtHora, horaValida, fechaValida, diasEntre, nochesHotel, fechasCalculadas, fechasViaje, itinerario, fmtDuracion,
   pasajeroVacio, trayectoVacio, vueloVacio, hotelVacio, trasladoVacio, actividadVacia, seccionActividadesVacia, reservaVacia,
-  conteoPasajeros, textoPasajeros, validar, alertas, nombreArchivo, mensajeWhatsApp, generarPDF
+  conteoPasajeros, textoPasajeros, validar, alertas, nombreArchivo, mensajeWhatsApp, generarPDF,
+  fmtMoneda, codigoRecibo, nombreRecibo, mensajeRecibo, mensajeRecordatorio, generarRecibo
 };
 if (typeof module !== "undefined" && module.exports) module.exports = API; else root.DTRes = API;
 })(typeof window !== "undefined" ? window : globalThis);

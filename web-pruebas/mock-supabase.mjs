@@ -17,13 +17,14 @@ function cargarDB() {
       { id: users[0].id, email: users[0].email, nombre: "", rol: "admin", activo: true, creado_en: now() },
       { id: users[1].id, email: users[1].email, nombre: "Asesora Uno", rol: "asesor", activo: false, creado_en: now() }
     ],
-    config: [], clientes: [], historial: [], cotizaciones: [], seguimientos: [], plantillas: [], solicitudes: [], reservas: [], seqR: 0
+    config: [], clientes: [], historial: [], cotizaciones: [], seguimientos: [], plantillas: [], solicitudes: [], reservas: [], seqR: 0, pagos: [], abonos: [], seqRC: 0
   };
 }
 let DB = cargarDB();
-if (!DB.seguimientos) DB.seguimientos = []; if (!DB.plantillas) DB.plantillas = []; if (!DB.solicitudes) DB.solicitudes = []; if (!DB.reservas) DB.reservas = []; if (DB.seqR == null) DB.seqR = 0;
+if (!DB.seguimientos) DB.seguimientos = []; if (!DB.plantillas) DB.plantillas = []; if (!DB.solicitudes) DB.solicitudes = []; if (!DB.reservas) DB.reservas = []; if (DB.seqR == null) DB.seqR = 0; if (!DB.pagos) DB.pagos = []; if (!DB.abonos) DB.abonos = []; if (DB.seqRC == null) DB.seqRC = 0;
 const SIN_TABLAS = (() => { try { return localStorage.getItem("mock-sin-tablas") === "1"; } catch (_) { return false; } })();
 const SIN_04 = (() => { try { return localStorage.getItem("mock-sin-04") === "1"; } catch (_) { return false; } })();
+const SIN_05 = (() => { try { return localStorage.getItem("mock-sin-05") === "1"; } catch (_) { return false; } })();
 const SIN_03 = (() => { try { return localStorage.getItem("mock-sin-03") === "1"; } catch (_) { return false; } })();
 const guardarDB = () => { try { localStorage.setItem(K, JSON.stringify(DB)); } catch (_) {} };
 window.__mockDB = () => DB;
@@ -61,8 +62,11 @@ const visible = {
   seguimientos: r => { const c = DB.clientes.find(x => x.id === r.cliente_id); return !!c && visible.clientes(c); },
   plantillas: () => activo(),
   solicitudes: r => { const c = DB.clientes.find(x => x.id === r.cliente_id); return !!c && visible.clientes(c); },
-  reservas: r => activo() && (veTodo() || r.asesor_id === uid())
+  reservas: r => activo() && (veTodo() || r.asesor_id === uid()),
+  pagos: r => { const x = DB.reservas.find(y => y.id === r.reserva_id); return !!x && visible.reservas(x); },
+  abonos: r => { const x = DB.pagos.find(y => y.id === r.pago_id); return !!x && visible.pagos(x); }
 };
+const editaRes = rid => { const x = DB.reservas.find(y => y.id === rid); return activo() && !!x && (admin() || x.asesor_id === uid()); };
 const puedeInsertar = {
   perfiles: () => false, config: () => admin(),
   clientes: r => activo() && (admin() || r.asesor_id === uid()),
@@ -71,17 +75,21 @@ const puedeInsertar = {
   seguimientos: r => activo() && r.autor === uid() && visible.seguimientos(r),
   plantillas: r => activo() && r.creado_por === uid(),
   solicitudes: () => false,
-  reservas: r => activo() && (admin() || r.asesor_id === uid())
+  reservas: r => activo() && (admin() || r.asesor_id === uid()),
+  pagos: r => editaRes(r.reserva_id),
+  abonos: r => { const x = DB.pagos.find(y => y.id === r.pago_id); return !!x && editaRes(x.reserva_id) && (r.registrado_por === uid() || admin()); }
 };
 const puedeEditar = {
   perfiles: (r) => r.id === uid() || admin(), config: () => admin(),
   clientes: (r, n) => visible.clientes(r) && (admin() || n.asesor_id === uid()),
   cotizaciones: (r, n) => visible.cotizaciones(r) && (admin() || n.asesor_id === uid()),
   historial: () => false, seguimientos: () => false, plantillas: () => activo(), solicitudes: () => false,
-  reservas: (r, n) => visible.reservas(r) && (admin() || n.asesor_id === uid())
+  reservas: (r, n) => visible.reservas(r) && (admin() || n.asesor_id === uid()),
+  pagos: r => editaRes(r.reserva_id), abonos: () => false
 };
 const puedeBorrar = { perfiles: () => false, config: () => admin(), clientes: () => admin(), cotizaciones: () => admin(), historial: () => false,
-  seguimientos: () => admin(), plantillas: r => admin() || (activo() && r.creado_por === uid()), solicitudes: () => admin(), reservas: () => admin() };
+  seguimientos: () => admin(), plantillas: r => admin() || (activo() && r.creado_por === uid()), solicitudes: () => admin(), reservas: () => admin(),
+  pagos: r => admin() || (editaRes(r.reserva_id) && !DB.abonos.some(a => a.pago_id === r.id)), abonos: () => admin() };
 const err = (code, message) => ({ data: null, error: { code, message } });
 const PK = { config: "clave" };
 
@@ -123,6 +131,23 @@ function defaults(t, r) {
     if (!["por_confirmar", "confirmada", "en_viaje", "finalizada", "cancelada"].includes(o.estado)) return { error: { code: "23514", message: "estado" } };
     if (DB.reservas.some(x => x.numero === o.numero && x.id !== o.id)) return { error: { code: "23505", message: "numero duplicado" } };
   }
+  if (t === "pagos") {
+    if (!(o.valor > 0)) return { error: { code: "23514", message: "valor" } };
+    if (!["cobro", "pago"].includes(o.tipo) || !o.fecha_limite) return { error: { code: "23502", message: "faltan datos" } };
+    for (const k of ["concepto", "proveedor", "categoria", "notas"]) if (o[k] == null) o[k] = "";
+    if (!o.moneda) o.moneda = "COP"; if (o.orden == null) o.orden = 0;
+    o.creado_en = now(); o.actualizado_en = now(); if (!admin()) o.creado_por = uid();
+  }
+  if (t === "abonos") {
+    const p = DB.pagos.find(x => x.id === o.pago_id);
+    if (!p) return { error: { code: "P0001", message: "El pago no existe." } };
+    const pagado = DB.abonos.filter(a => a.pago_id === p.id).reduce((a, x) => a + Number(x.valor), 0);
+    if (Number(o.valor) > Number(p.valor) - pagado) return { error: { code: "P0001", message: "El valor supera lo pendiente ($" + new Intl.NumberFormat("es-CO").format(p.valor - pagado) + ")." } };
+    if (!admin()) { o.registrado_por = uid(); o.registrado_en = now(); o.numero = null; }
+    if (!o.registrado_en) o.registrado_en = now(); if (!o.fecha) o.fecha = now().slice(0, 10);
+    o.numero = p.tipo === "cobro" ? (o.numero != null ? o.numero : ++DB.seqRC) : null;
+    for (const k of ["medio", "referencia", "notas"]) if (o[k] == null) o[k] = "";
+  }
   if (t === "historial") { if (!o.fecha) o.fecha = now(); if (o.autor === undefined) o.autor = uid(); if (!o.tipo) o.tipo = "Nota"; }
   return { row: o };
 }
@@ -142,6 +167,7 @@ class Q {
   then(res, rej) { return Promise.resolve().then(() => this.run()).then(res, rej); }
   run() {
     if (!uid()) return err("42501", "permission denied (sin sesión)");
+    if ((SIN_TABLAS || SIN_04 || SIN_05) && (this.t === "pagos" || this.t === "abonos")) return err("PGRST205", "Could not find the table 'public." + this.t + "' in the schema cache");
     if ((SIN_TABLAS || SIN_04) && this.t === "reservas") return err("PGRST205", "Could not find the table 'public.reservas' in the schema cache");
     if ((SIN_TABLAS || SIN_03) && this.t === "solicitudes") return err("PGRST205", "Could not find the table 'public.solicitudes' in the schema cache");
     if (SIN_TABLAS && (this.t === "seguimientos" || this.t === "plantillas")) return err("PGRST205", "Could not find the table 'public." + this.t + "' in the schema cache");
@@ -177,7 +203,12 @@ class Q {
         if (this.t === "perfiles" && r.rol === "admin" && r.activo && (n.rol !== "admin" || !n.activo) && !DB.perfiles.some(p => p.id !== r.id && p.rol === "admin" && p.activo))
           return err("P0001", "Debe quedar al menos un administrador activo.");
         if (!puedeEditar[this.t](r, n)) { if (this.t === "perfiles") continue; return err("42501", "new row violates row-level security policy"); }
-        if (this.t === "clientes" || this.t === "cotizaciones" || this.t === "plantillas" || this.t === "reservas") n.actualizado_en = now();
+        if (this.t === "clientes" || this.t === "cotizaciones" || this.t === "plantillas" || this.t === "reservas" || this.t === "pagos") n.actualizado_en = now();
+        if (this.t === "pagos") {
+          n.reserva_id = r.reserva_id; n.tipo = r.tipo; n.creado_por = r.creado_por; n.creado_en = r.creado_en;
+          const pagado = DB.abonos.filter(a => a.pago_id === r.id).reduce((a, x) => a + Number(x.valor), 0);
+          if (Number(n.valor) < pagado) return err("P0001", "El valor no puede ser menor que lo ya pagado.");
+        }
         if (this.t === "plantillas") { n.creado_por = r.creado_por; n.creado_en = r.creado_en; }
         Object.assign(r, n); out.push(r);
       }
@@ -185,6 +216,8 @@ class Q {
       out = T.filter(r => vis(r) && this.filtros.every(f => f(r)) && puedeBorrar[this.t](r));
       DB[this.t] = T.filter(r => !out.includes(r));
       if (this.t === "clientes") { const ids = new Set(out.map(r => r.id)); DB.historial = DB.historial.filter(h => !ids.has(h.cliente_id)); DB.cotizaciones.forEach(q => { if (ids.has(q.cliente_id)) q.cliente_id = null; }); DB.reservas.forEach(q => { if (ids.has(q.cliente_id)) q.cliente_id = null; }); }
+      if (this.t === "reservas") { const ids = new Set(out.map(r => r.id)); const pids = new Set(DB.pagos.filter(p => ids.has(p.reserva_id)).map(p => p.id)); DB.pagos = DB.pagos.filter(p => !pids.has(p.id)); DB.abonos = DB.abonos.filter(a => !pids.has(a.pago_id)); }
+      if (this.t === "pagos") { const ids = new Set(out.map(r => r.id)); DB.abonos = DB.abonos.filter(a => !ids.has(a.pago_id)); }
     }
     guardarDB();
     const data = clone(out);
@@ -229,6 +262,10 @@ export function createClient(url, key) {
       if (fn === "ajustar_consecutivo") {
         if (!admin()) return err("P0001", "Solo el administrador puede hacer esto.");
         const m = Math.max(0, ...DB.cotizaciones.map(q => q.numero)); DB.seq = Math.max(DB.seq, m); guardarDB(); return { data: m, error: null };
+      }
+      if (fn === "ajustar_consecutivo_recibos") {
+        if (!admin()) return err("P0001", "Solo el administrador puede hacer esto.");
+        const m = Math.max(0, ...DB.abonos.map(q => q.numero || 0)); DB.seqRC = Math.max(DB.seqRC, m); guardarDB(); return { data: m, error: null };
       }
       if (fn === "ajustar_consecutivo_reservas") {
         if (!admin()) return err("P0001", "Solo el administrador puede hacer esto.");
