@@ -70,24 +70,82 @@ function enteroONulo(v) {
   return Number.isInteger(n) ? n : NaN;
 }
 
+/* ---------- Fechas (alternativas) ----------
+   Una cotización puede ofrecer varias fechas; cada una tiene sus vuelos, hotel, servicios y precios.
+   Las cotizaciones antiguas (sin "fechas") se leen como una sola fecha con sus campos de siempre. */
+const CAMPOS_FECHA_VIAJE = ["fechaIda", "fechaRegreso", "noches", "aerolinea", "equipaje", "tramos", "hotel", "categoriaHotel", "habitacion", "regimen", "traslados", "tours", "asistencia"];
+const TIPOS_TRAMO = [{ k: "ida", l: "Ida" }, { k: "regreso", l: "Regreso" }, { k: "tramo", l: "Tramo" }];
+const copia = o => JSON.parse(JSON.stringify(o == null ? null : o));
+function opcionVacia() { return { nombre: "", detalle: "", precioAdulto: null, precioNino: null, precioInfante: null }; }
+function fechaVacia() {
+  return { fechaIda: "", fechaRegreso: "", noches: null, aerolinea: "", equipaje: "", tramos: [], hotel: "", categoriaHotel: "", habitacion: "", regimen: "",
+    traslados: "", tours: "", asistencia: "", servicios: [], observacionesPaquete: "", opciones: [opcionVacia()], cargos: [], descuentos: [], anticipo: null };
+}
+function tramoVacio(tipo) { return { tipo: tipo || "ida", fecha: "", ruta: "", vuelo: "", salida: "", llegada: "", escala: "directo", escalaEn: "" }; }
+function fechasDe(q) {
+  q = q || {};
+  if (Array.isArray(q.fechas) && q.fechas.length) return q.fechas;
+  const v = q.viaje || {}, val = q.valores || {}, f = {};
+  CAMPOS_FECHA_VIAJE.forEach(k => { f[k] = v[k]; });
+  f.tramos = Array.isArray(v.tramos) ? v.tramos : [];
+  f.servicios = q.servicios || []; f.observacionesPaquete = q.observacionesPaquete || "";
+  f.opciones = opcionesDe(val); f.cargos = val.cargos || []; f.descuentos = val.descuentos || []; f.anticipo = val.anticipo;
+  return [f];
+}
+function tipoTramo(t, f) {
+  if (t && TIPOS_TRAMO.some(x => x.k === t.tipo)) return t.tipo;
+  return t && fechaValida(t.fecha) && f && t.fecha === f.fechaRegreso && f.fechaRegreso !== f.fechaIda ? "regreso" : "ida";
+}
+function escalaTxt(t) { return t && t.escala === "escala" ? "Con escala" + (s(t.escalaEn) ? " en " + s(t.escalaEn) : "") : "Directo"; }
+function eleccionDe(q) {
+  const val = (q && q.valores) || {}, fs = fechasDe(q), e = val.eleccion;
+  if (e && Number.isInteger(e.fecha) && fs[e.fecha] && Number.isInteger(e.opcion) && opcionesDe(fs[e.fecha])[e.opcion]) return { fecha: e.fecha, opcion: e.opcion };
+  if (!(Array.isArray(q && q.fechas) && q.fechas.length) && Number.isInteger(val.opcionElegida) && opcionesDe(val)[val.opcionElegida]) return { fecha: 0, opcion: val.opcionElegida };
+  return null;
+}
+/* Deja la cotización con "fechas" y copia la fecha elegida (o la primera) a los campos de siempre,
+   para que el resto del CRM (tarjetas, seguimientos, reservas) siga leyendo viaje.fechaIda, etc. */
+function sincronizar(q) {
+  const e = eleccionDe(q);
+  const fs = fechasDe(q).map(f => {
+    const n = Object.assign(fechaVacia(), copia(f));
+    n.opciones = (opcionesDe(n).length ? opcionesDe(n) : [opcionVacia()]).map(o => Object.assign(opcionVacia(), copia(o)));
+    n.tramos = (n.tramos || []).map(t => Object.assign(tramoVacio(), t, { tipo: tipoTramo(t, n), escala: t.escala === "escala" ? "escala" : "directo" }));
+    delete n.precioAdulto; delete n.precioNino; delete n.precioInfante;
+    return n;
+  });
+  q.fechas = fs;
+  const f = fs[e ? e.fecha : 0];
+  q.viaje = Object.assign({}, q.viaje || {});
+  CAMPOS_FECHA_VIAJE.forEach(k => { q.viaje[k] = copia(f[k]); });
+  q.servicios = copia(f.servicios); q.observacionesPaquete = f.observacionesPaquete || "";
+  q.valores = Object.assign({}, q.valores || {}, { opciones: copia(f.opciones), cargos: copia(f.cargos), descuentos: copia(f.descuentos), anticipo: f.anticipo == null ? null : f.anticipo });
+  delete q.valores.precioAdulto; delete q.valores.precioNino; delete q.valores.precioInfante;
+  if (e) { q.valores.eleccion = e; q.valores.opcionElegida = e.opcion; } else { delete q.valores.eleccion; delete q.valores.opcionElegida; }
+  return q;
+}
+function rangoFechas(f) {
+  if (!f) return "";
+  if (fechaValida(f.fechaIda)) return fmtFecha(f.fechaIda) + (fechaValida(f.fechaRegreso) ? " – " + fmtFecha(f.fechaRegreso) : "");
+  return fechaValida(f.fechaRegreso) ? "Regreso " + fmtFecha(f.fechaRegreso) : "";
+}
+
 /* ---------- Cálculos ---------- */
-/* Opciones de precio: una cotización puede ofrecer varias (p. ej. solo desayuno / todo incluido).
+/* Opciones de precio: una fecha puede ofrecer varias (p. ej. solo desayuno / todo incluido).
    Las cotizaciones antiguas, con precios sueltos, se leen como una sola opción. */
 function opcionesDe(val) {
   val = val || {};
   if (Array.isArray(val.opciones) && val.opciones.length) return val.opciones;
   return [{ nombre: "", detalle: "", precioAdulto: val.precioAdulto, precioNino: val.precioNino, precioInfante: val.precioInfante }];
 }
-function calcular(q) {
-  const v = (q && q.viaje) || {}, val = (q && q.valores) || {};
-  const cant = { adultos: enteroONulo(v.adultos) || 0, ninos: enteroONulo(v.ninos) || 0, infantes: enteroONulo(v.infantes) || 0 };
-  const cargos = (val.cargos || []).filter(x => x && (s(x.concepto) || esNum(x.valor)));
-  const descuentos = (val.descuentos || []).filter(x => x && (s(x.concepto) || esNum(x.valor)));
+function calcFecha(f, cant, pax) {
+  f = f || {};
+  const cargos = (f.cargos || []).filter(x => x && (s(x.concepto) || esNum(x.valor)));
+  const descuentos = (f.descuentos || []).filter(x => x && (s(x.concepto) || esNum(x.valor)));
   const totalCargos = cargos.reduce((a, x) => a + (esNum(x.valor) ? x.valor : 0), 0);
   const totalDescuentos = descuentos.reduce((a, x) => a + (esNum(x.valor) ? x.valor : 0), 0);
-  const pax = cant.adultos + cant.ninos + cant.infantes;
-  const anticipo = esNum(val.anticipo) ? val.anticipo : null;
-  const ops = opcionesDe(val).map(o => {
+  const anticipo = esNum(f.anticipo) ? f.anticipo : null;
+  const opciones = opcionesDe(f).map(o => {
     o = o || {};
     const cats = [
       { k: "adultos", campo: "precioAdulto", l: "Adultos", unit: o.precioAdulto },
@@ -110,16 +168,36 @@ function calcular(q) {
     return { nombre: s(o.nombre), detalle: s(o.detalle), lineas, faltantes, completo, subtotalPasajeros, total,
       porPersona: completo && pax > 0 ? Math.round(total / pax) : null, saldo: anticipo != null ? total - anticipo : null };
   });
-  const elegida = Number.isInteger(val.opcionElegida) && ops[val.opcionElegida] ? val.opcionElegida : null;
-  const p = ops[elegida != null ? elegida : 0];
-  const completos = ops.filter(o => o.completo);
+  return { opciones, cargos, descuentos, totalCargos, totalDescuentos, anticipo, completo: opciones.every(o => o.completo) };
+}
+function calcular(q) {
+  const v = (q && q.viaje) || {};
+  const cant = { adultos: enteroONulo(v.adultos) || 0, ninos: enteroONulo(v.ninos) || 0, infantes: enteroONulo(v.infantes) || 0 };
+  const pax = cant.adultos + cant.ninos + cant.infantes;
+  const fs = fechasDe(q).map((f, fi) => {
+    const c = calcFecha(f, cant, pax);
+    c.opciones.forEach((o, oi) => { o.fi = fi; o.oi = oi; });
+    return Object.assign(c, { fi, fechaIda: (f || {}).fechaIda || "", fechaRegreso: (f || {}).fechaRegreso || "" });
+  });
+  const todas = [].concat(...fs.map(f => f.opciones));
+  const e = eleccionDe(q), fsel = fs[e ? e.fecha : 0], sel = fsel.opciones[e ? e.opcion : 0];
+  const completos = todas.filter(o => o.completo);
   return {
-    opciones: ops, multiple: ops.length > 1, elegida,
-    lineas: p.lineas, faltantes: p.faltantes, subtotalPasajeros: p.subtotalPasajeros, total: p.total, porPersona: p.porPersona, saldo: p.saldo,
-    completo: ops.every(o => o.completo),
+    fechas: fs, multipleFechas: fs.length > 1, todas, multiple: todas.length > 1, eleccion: e,
+    opciones: fsel.opciones, elegida: e ? e.opcion : null,
+    lineas: sel.lineas, faltantes: sel.faltantes, subtotalPasajeros: sel.subtotalPasajeros, total: sel.total, porPersona: sel.porPersona, saldo: sel.saldo,
+    completo: todas.every(o => o.completo),
     minimo: completos.length ? Math.min(...completos.map(o => o.total)) : null,
-    cargos, descuentos, totalCargos, totalDescuentos, pax, anticipo
+    cargos: fsel.cargos, descuentos: fsel.descuentos, totalCargos: fsel.totalCargos, totalDescuentos: fsel.totalDescuentos, pax, anticipo: fsel.anticipo
   };
+}
+/* Nombre de una opción para el cliente: "Fecha 1 (10/12/2026 – 15/12/2026) · Opción 2 – Todo incluido". */
+function etiquetaOpcion(r, o) {
+  const partes = [];
+  if (r.multipleFechas) { const f = r.fechas[o.fi], rg = rangoFechas(f); partes.push("Fecha " + (o.fi + 1) + (rg ? " (" + rg + ")" : "")); }
+  const varias = r.fechas[o.fi].opciones.length > 1;
+  if (varias || o.nombre) partes.push((varias ? "Opción " + (o.oi + 1) : "") + (varias && o.nombre ? " – " : "") + (o.nombre || ""));
+  return partes.join(" · ") || "Valor total";
 }
 
 /* ---------- Validación ----------
@@ -127,8 +205,10 @@ function calcular(q) {
    modo "pdf": además exige lo necesario para un documento completo. */
 function validar(q, modo) {
   const errores = [], avisos = [];
-  const add = (tab, campo, msg) => errores.push({ tab, campo, msg });
-  const c = q.cliente || {}, v = q.viaje || {}, val = q.valores || {}, cond = q.condiciones || {};
+  const fsAll = fechasDe(q), variasF = fsAll.length > 1;
+  let fiActual = null;
+  const add = (tab, campo, msg) => errores.push(fiActual == null ? { tab, campo, msg } : { tab, campo, msg: (variasF ? "Fecha " + (fiActual + 1) + ": " : "") + msg, fecha: fiActual });
+  const c = q.cliente || {}, v = q.viaje || {}, cond = q.condiciones || {};
   if (!s(c.nombre)) add("cliente", "c_nombre", "Escribe el nombre del cliente.");
   if (s(c.email) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s(c.email))) add("cliente", "c_email", "Revisa el correo del cliente: debe tener el formato nombre@dominio.com.");
   if (!fechaValida(q.fechaElaboracion)) add("cliente", "q_fecha", "Indica la fecha de elaboración.");
@@ -136,13 +216,7 @@ function validar(q, modo) {
     if (!fechaValida(q.fechaVencimiento)) add("cliente", "q_venc", "La fecha de vigencia no es válida.");
     else if (diasEntre(q.fechaElaboracion, q.fechaVencimiento) < 0) add("cliente", "q_venc", "La vigencia no puede ser anterior a la fecha de elaboración.");
   }
-  // Viaje
-  if (s(v.fechaIda) && !fechaValida(v.fechaIda)) add("viaje", "v_ida", "La fecha de ida no es válida.");
-  if (s(v.fechaRegreso) && !fechaValida(v.fechaRegreso)) add("viaje", "v_regreso", "La fecha de regreso no es válida.");
-  if (fechaValida(v.fechaIda) && fechaValida(v.fechaRegreso) && diasEntre(v.fechaIda, v.fechaRegreso) < 0) add("viaje", "v_regreso", "La fecha de regreso no puede ser anterior a la de ida.");
-  if (fechaValida(v.fechaIda) && fechaValida(q.fechaElaboracion) && diasEntre(q.fechaElaboracion, v.fechaIda) < 0) avisos.push("La fecha de ida es anterior a la fecha de elaboración.");
-  const noches = enteroONulo(v.noches);
-  if (Number.isNaN(noches) || (noches != null && (noches < 0 || noches > 365))) add("viaje", "v_noches", "El número de noches debe ser un número entero entre 0 y 365.");
+  // Pasajeros (compartidos por todas las fechas)
   const cantidades = [["adultos", "v_adultos", "adultos"], ["ninos", "v_ninos", "niños"], ["infantes", "v_infantes", "infantes"]];
   cantidades.forEach(([k, campo, l]) => {
     const n = enteroONulo(v[k]);
@@ -152,42 +226,55 @@ function validar(q, modo) {
   const edades = parseEdades(v.edadesNinos);
   if (edades.some(e => Number.isNaN(e) || e < 0 || e > 17)) add("viaje", "v_edades", "Escribe las edades de los niños como números separados por comas (por ejemplo: 5, 8).");
   else if (edades.length && edades.length !== ninos) add("viaje", "v_edades", "Escribiste " + plural(edades.length, "edad", "edades") + " pero hay " + plural(ninos, "niño", "niños") + ".");
-  (v.tramos || []).forEach((t, i) => { if (s(t.fecha) && !fechaValida(t.fecha)) add("viaje", "tramo_" + i, "La fecha del trayecto " + (i + 1) + " no es válida."); });
-  // Valores
-  const ops = opcionesDe(val), varias = ops.length > 1;
-  const nomOp = i => "la opción " + (i + 1) + (s(ops[i].nombre) ? " (" + s(ops[i].nombre) + ")" : "");
-  ops.forEach((o, i) => {
-    [["precioAdulto", "precio por adulto"], ["precioNino", "precio por niño"], ["precioInfante", "precio por infante"]].forEach(([k, l]) => {
-      if (o[k] != null && (!esNum(o[k]) || o[k] < 0)) add("valores", "op_" + i + "_" + k, "El " + l + (varias ? " de " + nomOp(i) : "") + " no es un valor válido.");
-    });
-    if (varias && !s(o.nombre)) add("valores", "op_" + i + "_nombre", "Escribe el nombre de la opción " + (i + 1) + " (por ejemplo: Todo incluido).");
-  });
-  if (val.anticipo != null && (!esNum(val.anticipo) || val.anticipo < 0)) add("valores", "p_anticipo", "El anticipo no es un valor válido.");
-  (val.cargos || []).forEach((x, i) => {
-    if (esNum(x.valor) && !s(x.concepto)) add("valores", "cargo_" + i, "Escribe el concepto del cargo " + (i + 1) + ".");
-    if (s(x.concepto) && !esNum(x.valor)) add("valores", "cargo_" + i, "Escribe el valor del cargo “" + s(x.concepto) + "”.");
-  });
-  (val.descuentos || []).forEach((x, i) => {
-    if (esNum(x.valor) && !s(x.concepto)) add("valores", "desc_" + i, "Escribe el concepto del descuento " + (i + 1) + ".");
-    if (s(x.concepto) && !esNum(x.valor)) add("valores", "desc_" + i, "Escribe el valor del descuento “" + s(x.concepto) + "”.");
-  });
   if (s(cond.fechaLimitePago) && !fechaValida(cond.fechaLimitePago)) add("condiciones", "k_limite", "La fecha límite de pago no es válida.");
-  const r = calcular(q);
-  if (r.opciones.some(o => o.total < 0)) add("valores", "desc_0", "Los descuentos superan el valor de la cotización.");
-  if (r.anticipo != null && r.opciones.some(o => o.completo && r.anticipo > o.total)) add("valores", "p_anticipo", "El anticipo no puede ser mayor que el valor total" + (varias ? " de ninguna opción." : "."));
-
   if (modo === "pdf") {
     if (!s(v.destinos)) add("viaje", "v_destinos", "Escribe el destino del viaje.");
     if (adultos + ninos + infantes === 0) add("viaje", "v_adultos", "Indica al menos un pasajero.");
     if (infantes > 0 && adultos === 0) add("viaje", "v_adultos", "Los infantes deben viajar con al menos un adulto.");
     if (ninos > 0 && !edades.length) add("viaje", "v_edades", "Escribe la edad de cada niño.");
-    const nombres = { adultos: "por adulto", ninos: "por niño", infantes: "por infante" };
-    const campos = { adultos: "precioAdulto", ninos: "precioNino", infantes: "precioInfante" };
-    r.opciones.forEach((o, i) => {
-      o.faltantes.forEach(k => add("valores", "op_" + i + "_" + campos[k], "Falta el precio " + nombres[k] + (varias ? " en " + nomOp(i) : "") + ". Escribe 0 si no tiene costo."));
-      if (o.completo && o.total <= 0) add("valores", "op_" + i + "_precioAdulto", "El valor total" + (varias ? " de " + nomOp(i) : "") + " debe ser mayor que cero.");
-    });
   }
+  const r = calcular(q);
+  // Cada fecha
+  fsAll.forEach((f, fi) => {
+    fiActual = fi; f = f || {};
+    const p = "f" + fi + "_";
+    if (s(f.fechaIda) && !fechaValida(f.fechaIda)) add("viaje", p + "ida", "La fecha de ida no es válida.");
+    if (s(f.fechaRegreso) && !fechaValida(f.fechaRegreso)) add("viaje", p + "regreso", "La fecha de regreso no es válida.");
+    if (fechaValida(f.fechaIda) && fechaValida(f.fechaRegreso) && diasEntre(f.fechaIda, f.fechaRegreso) < 0) add("viaje", p + "regreso", "La fecha de regreso no puede ser anterior a la de ida.");
+    if (fechaValida(f.fechaIda) && fechaValida(q.fechaElaboracion) && diasEntre(q.fechaElaboracion, f.fechaIda) < 0) avisos.push("La fecha de ida es anterior a la fecha de elaboración.");
+    const noches = enteroONulo(f.noches);
+    if (Number.isNaN(noches) || (noches != null && (noches < 0 || noches > 365))) add("viaje", p + "noches", "El número de noches debe ser un número entero entre 0 y 365.");
+    (f.tramos || []).forEach((t, i) => { if (s(t.fecha) && !fechaValida(t.fecha)) add("viaje", "tramo_" + fi + "_" + i, "La fecha del trayecto " + (i + 1) + " no es válida."); });
+    const ops = opcionesDe(f), varias = ops.length > 1;
+    const nomOp = i => "la opción " + (i + 1) + (s(ops[i].nombre) ? " (" + s(ops[i].nombre) + ")" : "");
+    ops.forEach((o, i) => {
+      [["precioAdulto", "precio por adulto"], ["precioNino", "precio por niño"], ["precioInfante", "precio por infante"]].forEach(([k, l]) => {
+        if (o[k] != null && (!esNum(o[k]) || o[k] < 0)) add("valores", "op_" + fi + "_" + i + "_" + k, "El " + l + (varias ? " de " + nomOp(i) : "") + " no es un valor válido.");
+      });
+      if (varias && !s(o.nombre)) add("valores", "op_" + fi + "_" + i + "_nombre", "Escribe el nombre de la opción " + (i + 1) + " (por ejemplo: Todo incluido).");
+    });
+    if (f.anticipo != null && (!esNum(f.anticipo) || f.anticipo < 0)) add("valores", "p_anticipo_" + fi, "El anticipo no es un valor válido.");
+    (f.cargos || []).forEach((x, i) => {
+      if (esNum(x.valor) && !s(x.concepto)) add("valores", "cargo_" + fi + "_" + i, "Escribe el concepto del cargo " + (i + 1) + ".");
+      if (s(x.concepto) && !esNum(x.valor)) add("valores", "cargo_" + fi + "_" + i, "Escribe el valor del cargo “" + s(x.concepto) + "”.");
+    });
+    (f.descuentos || []).forEach((x, i) => {
+      if (esNum(x.valor) && !s(x.concepto)) add("valores", "desc_" + fi + "_" + i, "Escribe el concepto del descuento " + (i + 1) + ".");
+      if (s(x.concepto) && !esNum(x.valor)) add("valores", "desc_" + fi + "_" + i, "Escribe el valor del descuento “" + s(x.concepto) + "”.");
+    });
+    const rf = r.fechas[fi];
+    if (rf.opciones.some(o => o.total < 0)) add("valores", "desc_" + fi + "_0", "Los descuentos superan el valor de la cotización.");
+    if (rf.anticipo != null && rf.opciones.some(o => o.completo && rf.anticipo > o.total)) add("valores", "p_anticipo_" + fi, "El anticipo no puede ser mayor que el valor total" + (varias ? " de ninguna opción." : "."));
+    if (modo === "pdf") {
+      if (variasF && !fechaValida(f.fechaIda)) add("viaje", p + "ida", "Escribe la fecha de ida (con varias fechas, cada una necesita la suya).");
+      const nombres = { adultos: "por adulto", ninos: "por niño", infantes: "por infante" };
+      const campos = { adultos: "precioAdulto", ninos: "precioNino", infantes: "precioInfante" };
+      rf.opciones.forEach((o, i) => {
+        o.faltantes.forEach(k => add("valores", "op_" + fi + "_" + i + "_" + campos[k], "Falta el precio " + nombres[k] + (varias ? " en " + nomOp(i) : "") + ". Escribe 0 si no tiene costo."));
+        if (o.completo && o.total <= 0) add("valores", "op_" + fi + "_" + i + "_precioAdulto", "El valor total" + (varias ? " de " + nomOp(i) : "") + " debe ser mayor que cero.");
+      });
+    }
+  });
   return { errores, avisos, ok: errores.length === 0 };
 }
 
@@ -220,13 +307,15 @@ function mensajeWhatsApp(q) {
   lineas.push("Hola" + (nombre ? " " + nombre : "") + ", te saluda " + (s(q.asesorNombre) ? s(q.asesorNombre) + " de " : "") + "Diamond Travel.");
   let l2 = "Te comparto la cotización " + codigo(q.numero);
   if (s(v.destinos)) l2 += " de tu viaje a " + s(v.destinos);
-  if (fechaValida(v.fechaIda)) l2 += " (" + fmtFecha(v.fechaIda) + (fechaValida(v.fechaRegreso) ? " al " + fmtFecha(v.fechaRegreso) : "") + ")";
+  const f0 = fechasDe(q)[r.eleccion ? r.eleccion.fecha : 0] || {};
+  if (r.multipleFechas && !r.eleccion) l2 += " con " + r.fechas.length + " opciones de fecha";
+  else if (fechaValida(f0.fechaIda)) l2 += " (" + fmtFecha(f0.fechaIda) + (fechaValida(f0.fechaRegreso) ? " al " + fmtFecha(f0.fechaRegreso) : "") + ")";
   lineas.push(l2 + ".");
   const mon = (q.valores || {}).moneda;
-  if (r.completo && r.multiple && r.elegida == null) {
-    lineas.push("Te preparé " + r.opciones.length + " opciones:");
-    r.opciones.forEach((o, i) => lineas.push("• Opción " + (i + 1) + (o.nombre ? " – " + o.nombre : "") + ": " + fmtMoneda(o.total, mon)));
-  } else if (r.completo) lineas.push("Valor total" + (r.multiple && o_nombre(r) ? " (" + o_nombre(r) + ")" : "") + ": " + fmtMoneda(r.total, mon) + ".");
+  if (r.completo && r.multiple && !r.eleccion) {
+    lineas.push("Te preparé " + r.todas.length + " opciones:");
+    r.todas.forEach(o => lineas.push("• " + etiquetaOpcion(r, o) + ": " + fmtMoneda(o.total, mon)));
+  } else if (r.completo) lineas.push("Valor total" + (r.multiple && r.eleccion ? " (" + etiquetaOpcion(r, r.fechas[r.eleccion.fecha].opciones[r.eleccion.opcion]) + ")" : "") + ": " + fmtMoneda(r.total, mon) + ".");
   if (fechaValida(q.fechaVencimiento)) lineas.push("Esta cotización está vigente hasta el " + fmtFecha(q.fechaVencimiento) + ".");
   lineas.push("Te adjunto el PDF con todos los detalles. Quedamos atentos a tus preguntas.");
   return lineas.join("\n");
@@ -425,7 +514,7 @@ async function generarPDF(q, opts) {
   /* ----- Contenido ----- */
   const cli = q.cliente || {}, v = q.viaje || {}, val = q.valores || {}, cond = q.condiciones || {};
   const moneda = MONEDAS[val.moneda] ? val.moneda : "COP";
-  const r = calcular(q);
+  const r = calcular(q), FS = fechasDe(q), variasF = FS.length > 1;
   nuevaPagina(true);
 
   // Cliente y asesor
@@ -443,13 +532,13 @@ async function generarPDF(q, opts) {
   y = Math.max(yy, ya) + 10;
 
   // Resumen del viaje
-  const fechas = fechaValida(v.fechaIda) ? fmtFecha(v.fechaIda) + (fechaValida(v.fechaRegreso) ? "  –  " + fmtFecha(v.fechaRegreso) : "") : (fechaValida(v.fechaRegreso) ? "Regreso " + fmtFecha(v.fechaRegreso) : "");
-  const noches = enteroONulo(v.noches);
+  const f0 = FS[0] || {};
+  const noches0 = enteroONulo(f0.noches);
   const celdas = [
     ["DESTINO", s(v.destinos)],
     ["SALIDA DESDE", s(v.ciudadSalida)],
-    ["FECHAS", fechas],
-    ["NOCHES", noches != null && !Number.isNaN(noches) ? String(noches) : ""]
+    ["FECHAS", variasF ? FS.length + " opciones de fecha" : rangoFechas(f0).replace(" – ", "  –  ")],
+    ["NOCHES", !variasF && noches0 != null && !Number.isNaN(noches0) ? String(noches0) : ""]
   ].filter(c => c[1]);
   const pasaj = textoPasajeros(v);
   {
@@ -477,94 +566,116 @@ async function generarPDF(q, opts) {
     y += h + 8;
   }
 
-  // Vuelos
-  const tramos = (v.tramos || []).filter(t => s(t.fecha) || s(t.ruta) || s(t.vuelo) || s(t.salida) || s(t.llegada));
-  if (s(v.aerolinea) || s(v.equipaje) || tramos.length) {
-    tituloSeccion("Vuelos", 40);
-    filasKV([["Aerolínea", s(v.aerolinea)], ["Equipaje incluido", s(v.equipaje)]]);
-    if (tramos.length) {
-      y += 4;
-      tabla([
-        { l: "FECHA", w: 0.16 }, { l: "TRAYECTO", w: 0.38 }, { l: "VUELO", w: 0.16 }, { l: "SALIDA", w: 0.15 }, { l: "LLEGADA", w: 0.15 }
-      ], tramos.map(t => ({ celdas: [fmtFecha(t.fecha) || s(t.fecha), s(t.ruta), s(t.vuelo), s(t.salida), s(t.llegada)] })));
-    }
-  }
-
-  // Alojamiento
-  if (s(v.hotel) || s(v.categoriaHotel) || s(v.habitacion) || s(v.regimen)) {
-    tituloSeccion("Hotel y alojamiento");
-    filasKV([["Hotel", s(v.hotel)], ["Categoría", s(v.categoriaHotel)], ["Tipo de habitación", s(v.habitacion)], ["Alimentación", s(v.regimen)]]);
-  }
-  // En destino
-  if (s(v.traslados) || s(v.tours) || s(v.asistencia)) {
-    tituloSeccion("Traslados, tours y asistencia");
-    filasKV([["Traslados", s(v.traslados)], ["Tours y actividades", s(v.tours)], ["Asistencia médica", s(v.asistencia)]]);
-  }
-
-  // Servicios
-  const incl = (q.servicios || []).filter(x => s(x.descripcion) && x.incluido !== false);
-  const noIncl = (q.servicios || []).filter(x => s(x.descripcion) && x.incluido === false);
-  if (incl.length) { tituloSeccion("Servicios incluidos"); incl.forEach(x => vineta(x.descripcion, "si")); }
-  if (noIncl.length || s(cond.noIncluidos)) {
-    tituloSeccion("Servicios no incluidos");
-    noIncl.forEach(x => vineta(x.descripcion, "no"));
-    if (s(cond.noIncluidos)) { y += 2; parrafo(cond.noIncluidos, { color: C.muted }); }
-  }
-  if (s(q.observacionesPaquete)) { tituloSeccion("Observaciones del paquete"); parrafo(q.observacionesPaquete); }
-
-  // Precios: cada opción (tabla + total) se mantiene junta cuando cabe en una página
   const etiquetaMoneda = "Valores en " + MONEDAS[moneda].l.toLowerCase().replace(/\(.*\)/, "").trim() + " (" + moneda + ")";
-  const filasDe = o => {
-    const f = [];
-    o.lineas.forEach(l => f.push({ celdas: [l.concepto, String(l.cant), l.unit != null ? fmtMoneda(l.unit, moneda) : "Por definir", l.subtotal != null ? fmtMoneda(l.subtotal, moneda) : "Por definir"] }));
-    r.cargos.forEach(c => f.push({ celdas: [s(c.concepto), "", "", fmtMoneda(c.valor, moneda)] }));
-    r.descuentos.forEach(d => f.push({ celdas: [s(d.concepto) || "Descuento", "", "", fmtMoneda(-(d.valor || 0), moneda)], color: C.goldInk }));
-    return f;
-  };
   const COLS_P = [{ l: "CONCEPTO", w: 0.43 }, { l: "CANTIDAD", w: 0.13, align: "right" }, { l: "VALOR UNITARIO", w: 0.22, align: "right" }, { l: "SUBTOTAL", w: 0.22, align: "right" }];
   const filaExtra = (k, vv, negrita) => {
     T(k, ML + 16, y + 13, { size: 10, color: C.ink, font: negrita ? F.bold : F.reg });
     TR(vv, ML + CW - 16, y + 13, { size: 10.5, font: F.bold, color: C.navy });
     y += 20; line(ML, y, ML + CW, y, C.line, 0.5);
   };
-  r.opciones.forEach((o, i) => {
-    const varias = r.multiple;
-    const extra = [];
-    if (val.mostrarPorPersona && o.porPersona != null && r.pax > 1) extra.push(["Valor promedio por pasajero (" + r.pax + " pasajeros)", fmtMoneda(o.porPersona, moneda)]);
-    if (varias && o.saldo != null && o.completo) extra.push(["Saldo pendiente si se paga el anticipo", fmtMoneda(o.saldo, moneda)]);
-    const bandaH = varias ? 46 : 58;
-    const bloque = (i === 0 ? 36 : 0) + (varias ? 34 : 0) + 20 + (o.lineas.length + r.cargos.length + r.descuentos.length) * 24 + 6 + bandaH + 12 + extra.length * 20 + 12;
-    if (!cabe(bloque) && bloque < H - FOOT - 10 - TOP_CONT) nuevaPagina(false);
-    if (i === 0) tituloSeccion(varias ? "Opciones y precios" : "Desglose de precios", 90);
-    if (varias) {
-      const elegida = r.elegida === i;
-      T("OPCIÓN " + (i + 1) + (elegida ? "  ·  ELEGIDA" : ""), ML, y + 9, { size: 8, font: F.bold, color: C.goldInk });
-      wrap(o.nombre || "Opción " + (i + 1), F.bold, 12.5, CW).forEach(ln => { y += 16; T(ln, ML, y + 9, { size: 12.5, font: F.bold, color: C.navy }); });
-      y += 6;
-      if (o.detalle) { y += 4; parrafo(o.detalle, { size: 9.5, color: C.muted }); }
+
+  // Una sección por fecha (con una sola fecha, el documento se ve como siempre)
+  FS.forEach((f, fi) => {
+    f = f || {};
+    const rf = r.fechas[fi];
+    if (variasF) {
+      const bh = 46, nch = enteroONulo(f.noches);
+      if (!cabe(bh + 120)) nuevaPagina(false);
+      y += fi === 0 ? 6 : 16;
+      rect(ML, y, CW, bh, C.navy); rect(ML, y + bh, CW, 2, C.gold);
+      spaced("OPCIÓN DE FECHA " + (fi + 1), ML + 14, y + 17, { size: 8, font: F.bold, color: C.gold, spacing: 1.6 });
+      T((rangoFechas(f) || "Fechas por definir") + (nch != null && !Number.isNaN(nch) && nch > 0 ? "   ·   " + plural(nch, "noche", "noches") : ""), ML + 14, y + 36, { size: 14, font: F.bold, color: C.white });
+      y += bh + 8;
+    }
+    // Vuelos
+    const tramos = (f.tramos || []).filter(t => s(t.fecha) || s(t.ruta) || s(t.vuelo) || s(t.salida) || s(t.llegada));
+    if (s(f.aerolinea) || s(f.equipaje) || tramos.length) {
+      tituloSeccion("Vuelos", 40);
+      filasKV([["Aerolínea", s(f.aerolinea)], ["Equipaje incluido", s(f.equipaje)]]);
+      if (tramos.length) {
+        y += 4;
+        const tl = t => (TIPOS_TRAMO.find(x => x.k === tipoTramo(t, f)) || TIPOS_TRAMO[0]).l;
+        tabla([
+          { l: "TRAYECTO", w: 0.15 }, { l: "RUTA", w: 0.31 }, { l: "VUELO", w: 0.12 }, { l: "SALE", w: 0.1 }, { l: "LLEGA", w: 0.1 }, { l: "TIPO DE VUELO", w: 0.22 }
+        ], tramos.map(t => ({ celdas: [tl(t) + (fmtFecha(t.fecha) ? "\n" + fmtFecha(t.fecha) : ""), s(t.ruta), s(t.vuelo), s(t.salida), s(t.llegada), escalaTxt(t)] })));
+      }
+    }
+    // Alojamiento
+    if (s(f.hotel) || s(f.categoriaHotel) || s(f.habitacion) || s(f.regimen)) {
+      tituloSeccion("Hotel y alojamiento");
+      filasKV([["Hotel", s(f.hotel)], ["Categoría", s(f.categoriaHotel)], ["Tipo de habitación", s(f.habitacion)], ["Alimentación", s(f.regimen)]]);
+    }
+    // En destino
+    if (s(f.traslados) || s(f.tours) || s(f.asistencia)) {
+      tituloSeccion("Traslados, tours y asistencia");
+      filasKV([["Traslados", s(f.traslados)], ["Tours y actividades", s(f.tours)], ["Asistencia médica", s(f.asistencia)]]);
+    }
+    // Servicios
+    const incl = (f.servicios || []).filter(x => s(x.descripcion) && x.incluido !== false);
+    const noIncl = (f.servicios || []).filter(x => s(x.descripcion) && x.incluido === false);
+    if (incl.length) { tituloSeccion("Servicios incluidos"); incl.forEach(x => vineta(x.descripcion, "si")); }
+    if (noIncl.length || (!variasF && s(cond.noIncluidos))) {
+      tituloSeccion("Servicios no incluidos");
+      noIncl.forEach(x => vineta(x.descripcion, "no"));
+      if (!variasF && s(cond.noIncluidos)) { y += 2; parrafo(cond.noIncluidos, { color: C.muted }); }
+    }
+    if (s(f.observacionesPaquete)) { tituloSeccion("Observaciones del paquete"); parrafo(f.observacionesPaquete); }
+
+    // Precios: cada opción (tabla + total) se mantiene junta cuando cabe en una página
+    const filasDe = o => {
+      const fl = [];
+      o.lineas.forEach(l => fl.push({ celdas: [l.concepto, String(l.cant), l.unit != null ? fmtMoneda(l.unit, moneda) : "Por definir", l.subtotal != null ? fmtMoneda(l.subtotal, moneda) : "Por definir"] }));
+      rf.cargos.forEach(c => fl.push({ celdas: [s(c.concepto), "", "", fmtMoneda(c.valor, moneda)] }));
+      rf.descuentos.forEach(d => fl.push({ celdas: [s(d.concepto) || "Descuento", "", "", fmtMoneda(-(d.valor || 0), moneda)], color: C.goldInk }));
+      return fl;
+    };
+    rf.opciones.forEach((o, i) => {
+      const varias = rf.opciones.length > 1;
+      const extra = [];
+      if (val.mostrarPorPersona && o.porPersona != null && r.pax > 1) extra.push(["Valor promedio por pasajero (" + r.pax + " pasajeros)", fmtMoneda(o.porPersona, moneda)]);
+      if (varias && o.saldo != null && o.completo) extra.push(["Saldo pendiente si se paga el anticipo", fmtMoneda(o.saldo, moneda)]);
+      const bandaH = varias ? 46 : 58;
+      const bloque = (i === 0 ? 36 : 0) + (varias ? 34 : 0) + 20 + (o.lineas.length + rf.cargos.length + rf.descuentos.length) * 24 + 6 + bandaH + 12 + extra.length * 20 + 12;
+      if (!cabe(bloque) && bloque < H - FOOT - 10 - TOP_CONT) nuevaPagina(false);
+      if (i === 0) tituloSeccion(variasF ? "Precios de la fecha " + (fi + 1) : (varias ? "Opciones y precios" : "Desglose de precios"), 90);
+      if (varias) {
+        const elegida = r.eleccion && r.eleccion.fecha === fi && r.eleccion.opcion === i;
+        T("OPCIÓN " + (i + 1) + (elegida ? "  ·  ELEGIDA" : ""), ML, y + 9, { size: 8, font: F.bold, color: C.goldInk });
+        wrap(o.nombre || "Opción " + (i + 1), F.bold, 12.5, CW).forEach(ln => { y += 16; T(ln, ML, y + 9, { size: 12.5, font: F.bold, color: C.navy }); });
+        y += 6;
+        if (o.detalle) { y += 4; parrafo(o.detalle, { size: 9.5, color: C.muted }); }
+        y += 4;
+      }
+      tabla(COLS_P, filasDe(o));
+      asegurar(bandaH + 8);
       y += 4;
-    }
-    tabla(COLS_P, filasDe(o));
-    asegurar(bandaH + 8);
-    y += 4;
-    rect(ML, y, CW, bandaH, C.navy);
-    rect(ML, y + bandaH, CW, 2, C.gold);
-    spaced(varias ? "TOTAL OPCIÓN " + (i + 1) : "VALOR TOTAL", ML + 16, y + (varias ? 20 : 24), { size: 9, font: F.bold, color: C.gold, spacing: 1.8 });
-    T(etiquetaMoneda, ML + 16, y + (varias ? 34 : 40), { size: 8.5, color: C.onNavyMuted });
-    TR(o.completo ? fmtMoneda(o.total, moneda) : "Por definir", ML + CW - 16, y + (varias ? 31 : 38), { size: varias ? 20 : 24, font: F.bold, color: C.white });
-    y += bandaH + 8;
-    extra.forEach(([k, vv]) => { asegurar(20); filaExtra(k, vv, false); });
-    y += varias ? 14 : 0;
-  });
-  {
+      rect(ML, y, CW, bandaH, C.navy);
+      rect(ML, y + bandaH, CW, 2, C.gold);
+      spaced(varias ? "TOTAL OPCIÓN " + (i + 1) : (variasF ? "VALOR TOTAL · FECHA " + (fi + 1) : "VALOR TOTAL"), ML + 16, y + (varias ? 20 : 24), { size: 9, font: F.bold, color: C.gold, spacing: 1.8 });
+      T(etiquetaMoneda, ML + 16, y + (varias ? 34 : 40), { size: 8.5, color: C.onNavyMuted });
+      TR(o.completo ? fmtMoneda(o.total, moneda) : "Por definir", ML + CW - 16, y + (varias ? 31 : 38), { size: varias ? 20 : 24, font: F.bold, color: C.white });
+      y += bandaH + 8;
+      extra.forEach(([k, vv]) => { asegurar(20); filaExtra(k, vv, false); });
+      y += varias ? 14 : 0;
+    });
     const comunes = [];
-    if (r.anticipo != null) comunes.push(["Anticipo requerido", fmtMoneda(r.anticipo, moneda), false]);
-    if (!r.multiple && r.saldo != null) comunes.push(["Saldo pendiente", fmtMoneda(r.saldo, moneda), true]);
-    if (fechaValida(cond.fechaLimitePago)) comunes.push(["Fecha límite de pago", fmtFecha(cond.fechaLimitePago), false]);
-    if (comunes.length) {
-      asegurar(comunes.length * 20 + 6);
-      comunes.forEach(([k, vv, b]) => filaExtra(k, vv, b));
-    }
+    if (rf.anticipo != null) comunes.push(["Anticipo requerido", fmtMoneda(rf.anticipo, moneda), false]);
+    if (rf.opciones.length === 1 && rf.opciones[0].saldo != null) comunes.push(["Saldo pendiente", fmtMoneda(rf.opciones[0].saldo, moneda), true]);
+    if (!variasF && fechaValida(cond.fechaLimitePago)) comunes.push(["Fecha límite de pago", fmtFecha(cond.fechaLimitePago), false]);
+    if (comunes.length) { asegurar(comunes.length * 20 + 6); comunes.forEach(([k, vv, b]) => filaExtra(k, vv, b)); }
+    y += 10;
+  });
+
+  // Resumen comparativo de todas las fechas y opciones
+  if (variasF) {
+    tituloSeccion("Resumen de opciones", 70);
+    tabla([{ l: "FECHAS", w: 0.3 }, { l: "OPCIÓN", w: 0.42 }, { l: "VALOR TOTAL", w: 0.28, align: "right" }],
+      r.todas.map(o => {
+        const f = FS[o.fi] || {}, elegida = r.eleccion && r.eleccion.fecha === o.fi && r.eleccion.opcion === o.oi;
+        const varias = r.fechas[o.fi].opciones.length > 1;
+        return { bold: elegida, celdas: ["Fecha " + (o.fi + 1) + "\n" + (rangoFechas(f) || "Por definir"), (varias ? "Opción " + (o.oi + 1) + (o.nombre ? " – " + o.nombre : "") : (o.nombre || "Paquete completo")) + (elegida ? "  (elegida)" : ""), o.completo ? fmtMoneda(o.total, moneda) : "Por definir"] };
+      }));
+    if (fechaValida(cond.fechaLimitePago)) { asegurar(26); filaExtra("Fecha límite de pago", fmtFecha(cond.fechaLimitePago), false); }
     y += 10;
   }
 
@@ -574,7 +685,8 @@ async function generarPDF(q, opts) {
     ["Política de cancelación", cond.politicaCancelacion],
     ["Condiciones de equipaje", cond.equipaje],
     ["Disponibilidad y cambios de tarifa", cond.disponibilidad],
-    ["Observaciones adicionales", cond.adicionales]
+    ["Observaciones adicionales", cond.adicionales],
+    ["Servicios no incluidos", variasF ? cond.noIncluidos : ""]
   ].filter(c => s(c[1]));
   if (conds.length) {
     tituloSeccion("Condiciones comerciales", 40);
@@ -615,6 +727,6 @@ async function generarPDF(q, opts) {
   return await doc.save();
 }
 
-const API = { opcionesDe, AGENCIA, ESTADOS, MONEDAS, fmtFecha, fechaValida, diasEntre, fmtMoneda, fmtTel, codigo, parseEdades, enteroONulo, calcular, validar, textoPasajeros, nombreArchivo, mensajeWhatsApp, enlaceWhatsApp, generarPDF };
+const API = { opcionesDe, fechasDe, fechaVacia, opcionVacia, tramoVacio, TIPOS_TRAMO, tipoTramo, escalaTxt, eleccionDe, sincronizar, rangoFechas, etiquetaOpcion, AGENCIA, ESTADOS, MONEDAS, fmtFecha, fechaValida, diasEntre, fmtMoneda, fmtTel, codigo, parseEdades, enteroONulo, calcular, validar, textoPasajeros, nombreArchivo, mensajeWhatsApp, enlaceWhatsApp, generarPDF };
 if (typeof module !== "undefined" && module.exports) module.exports = API; else root.DTCot = API;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -34,6 +34,9 @@ Diseño azul marino, dorado y blanco · interfaz en español · moneda COP · fe
 - **Plantillas de cotización** (por ejemplo "San Andrés"): guardan destino, servicios, condiciones y opciones;
   no guardan cliente, fechas, pasajeros ni precios.
 - **Varias opciones de precio** por cotización (por ejemplo solo desayuno / todo incluido), cada una con su total en el PDF.
+- **Varias fechas en una sola cotización** (`fechas`): cada fecha con sus trayectos (ida / regreso / tramo, directo o con escala),
+  hotel, servicios y precios; el PDF trae una sección por fecha y un resumen comparativo. Al aceptar se elige fecha y opción,
+  y la reserva y los pagos toman esa fecha. Las cotizaciones antiguas se leen como una sola fecha.
 - **Formulario público "Cotiza tu viaje"** (`web/cotiza/`, enlace `/cotiza`): el cliente llena destino, fechas y personas;
   queda guardado solo en el CRM y aparece de primero en Seguimientos de hoy. Solo puede llamar a la función
   `registrar_solicitud` (valida datos, evita duplicados, limita envíos y guarda la autorización de datos, Ley 1581 de 2012).

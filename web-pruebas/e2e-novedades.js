@@ -50,10 +50,10 @@ async function entrarAdmin(page) {
   await T('#cliBusca').fill('Laura'); await T('button.pick', { hasText: 'Laura' }).click();
   await T('.ed-tab[data-tab="viaje"]').click();
   await T('#e_viaje_destinos').fill('San Andrés'); await T('#e_viaje_ciudadSalida').fill('Cúcuta');
-  await T('#e_viaje_fechaIda').fill(enDias(40)); await T('#e_viaje_fechaRegreso').fill(enDias(44));
+  await T('#e_fechas_0_fechaIda').fill(enDias(40)); await T('#e_fechas_0_fechaRegreso').fill(enDias(44));
   await T('#e_viaje_adultos').fill('2');
-  await T('#e_viaje_aerolinea').fill('Aerolínea de prueba');
-  await T('#e_viaje_hotel').fill('Hotel de prueba');
+  await T('#e_fechas_0_aerolinea').fill('Aerolínea de prueba');
+  await T('#e_fechas_0_hotel').fill('Hotel de prueba');
   // pestañas fijas: desplazar el contenido y comprobar que las pestañas no se mueven
   const antes = await T('.ed-tabs').boundingBox();
   await page.evaluate(() => { const sc = document.querySelector('.ed-scroll'); sc.scrollTop = sc.scrollHeight; });
@@ -65,26 +65,26 @@ async function entrarAdmin(page) {
   await T('button[data-ed="sug-serv"]', { hasText: 'Tiquetes aéreos' }).click();
   await T('button[data-ed="sug-serv"]', { hasText: 'Alojamiento' }).click();
   await T('.ed-tab[data-tab="valores"]').click();
-  await T('#e_valores_opciones_0_nombre').fill('Hotel de prueba – Solo desayuno');
-  await T('#e_valores_opciones_0_precioAdulto').pressSequentially('2100000');
+  await T('#e_fechas_0_opciones_0_nombre').fill('Hotel de prueba – Solo desayuno');
+  await T('#e_fechas_0_opciones_0_precioAdulto').pressSequentially('2100000');
   await T('button[data-ed="add-opcion"]').click();
-  await T('#e_valores_opciones_1_precioAdulto').pressSequentially('2900000');
-  await T('button[data-ed="add-cargo"]').click(); await T('#e_cargo_0c').fill('Tarjeta de turismo (prueba)'); await T('#e_cargo_0v').pressSequentially('300000');
+  await T('#e_fechas_0_opciones_1_precioAdulto').pressSequentially('2900000');
+  await T('button[data-ed="add-cargo"]').click(); await T('#e_cargo_0_0c').fill('Tarjeta de turismo (prueba)'); await T('#e_cargo_0_0v').pressSequentially('300000');
   const calc = await T('#calcBox').innerText();
   ok('Calcula un total por opción', calc.includes('4.500.000') && calc.includes('6.100.000'), calc.replace(/\n/g, ' | '));
   ok('Pie del editor muestra "desde"', (await T('#edTotal').innerText()).includes('desde'));
   await T('button[data-ed="save-pdf"]').click();
   await page.waitForSelector('.errbox');
   ok('Exige el nombre de la segunda opción', (await T('.errbox').innerText()).includes('nombre de la opción 2'));
-  await T('#e_valores_opciones_1_nombre').fill('Hotel de prueba – Todo incluido');
+  await T('#e_fechas_0_opciones_1_nombre').fill('Hotel de prueba – Todo incluido');
   await shot('02-opciones');
   // guardar como plantilla
   await T('button[data-ed="guardar-plantilla"]').click();
   await T('#plNom').fill('San Andrés prueba 4 noches'); await T('#plSi').click();
   await page.waitForFunction(() => window.__mockDB().plantillas.length === 1);
   const pl = await page.evaluate(() => window.__mockDB().plantillas[0]);
-  ok('Plantilla guardada sin cliente, fechas ni precios', pl.datos.viaje.destinos === 'San Andrés' && !pl.datos.viaje.fechaIda && !pl.datos.viaje.adultos && pl.datos.valores.opciones.length === 2 && pl.datos.valores.opciones.every(o => o.precioAdulto == null) && !pl.datos.cliente,
-    JSON.stringify(pl.datos.valores.opciones));
+  ok('Plantilla guardada sin cliente, fechas ni precios', pl.datos.viaje.destinos === 'San Andrés' && !pl.datos.viaje.adultos && !pl.datos.fechas[0].fechaIda && pl.datos.fechas[0].hotel === 'Hotel de prueba' && pl.datos.fechas[0].opciones.length === 2 && pl.datos.fechas[0].opciones.every(o => o.precioAdulto == null) && !pl.datos.cliente,
+    JSON.stringify(pl.datos.fechas[0].opciones));
   await T('button[data-ed="save-pdf"]').click();
   await page.waitForFunction(() => document.querySelectorAll('#pvPages canvas').length > 0 || /no se pudo/i.test((document.getElementById('pvStatus') || {}).textContent || ''), null, { timeout: 30000 });
   ok('PDF con dos opciones', (await T('#pvPages canvas').count()) > 0, await T('#pvStatus').innerText());
@@ -108,12 +108,12 @@ async function entrarAdmin(page) {
   await T('[data-tp-usar]').first().click();
   await page.waitForSelector('#plSel');
   await T('.ed-tab[data-tab="viaje"]').click();
-  ok('La plantilla llena el destino y el hotel', (await T('#e_viaje_destinos').inputValue()) === 'San Andrés' && (await T('#e_viaje_hotel').inputValue()) === 'Hotel de prueba');
-  ok('La plantilla deja vacías fechas y pasajeros', (await T('#e_viaje_fechaIda').inputValue()) === '' && (await T('#e_viaje_adultos').inputValue()) === '');
+  ok('La plantilla llena el destino y el hotel', (await T('#e_viaje_destinos').inputValue()) === 'San Andrés' && (await T('#e_fechas_0_hotel').inputValue()) === 'Hotel de prueba');
+  ok('La plantilla deja vacías fechas y pasajeros', (await T('#e_fechas_0_fechaIda').inputValue()) === '' && (await T('#e_viaje_adultos').inputValue()) === '');
   await T('.ed-tab[data-tab="valores"]').click();
-  ok('La plantilla trae las opciones sin precios', (await T('#e_valores_opciones_1_nombre').inputValue()).includes('Todo incluido') && (await T('#e_valores_opciones_0_precioAdulto').inputValue()) === '');
+  ok('La plantilla trae las opciones sin precios', (await T('#e_fechas_0_opciones_1_nombre').inputValue()).includes('Todo incluido') && (await T('#e_fechas_0_opciones_0_precioAdulto').inputValue()) === '');
   await T('.ed-tab[data-tab="servicios"]').click();
-  ok('La plantilla trae los servicios', (await T('[data-k="servicios.1.descripcion"]').inputValue()) === 'Alojamiento');
+  ok('La plantilla trae los servicios', (await T('[data-k="fechas.0.servicios.1.descripcion"]').inputValue()) === 'Alojamiento');
   await T('button[data-ed="close"]').click();
   await page.waitForTimeout(200); if (await T('#cSi').count()) await T('#cSi').click();
   await page.waitForFunction(() => !document.querySelector('.ed-tabs'));

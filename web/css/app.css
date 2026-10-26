@@ -351,3 +351,8 @@ p.err{color:var(--bad)}
 .pe-dividir .input{width:70px;min-height:38px;padding:6px 8px;text-align:center}
 .tab-mas{display:none}
 @media (max-width:599px){.tabs .tab-extra{display:none}.tabs .tab-mas{display:flex}}
+/* --- Cotización con varias fechas --- */
+.fecha-sel{display:flex;flex-direction:column;gap:10px;background:var(--gold-soft);border-radius:12px;padding:12px 14px}
+.fecha-sel .chips{align-items:center}
+.fecha-chip[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.dot-err{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--bad);margin-left:4px;vertical-align:middle}

@@ -520,7 +520,7 @@ const ICON_PLUS='<path d="M12 5v14M5 12h14"/>';
 const ICON_X='<path d="M6 6l12 12M18 6 6 18"/>';
 function totalTxt(q){
   const r=D.calcular(q);if(!r.completo)return "Por definir";
-  if(r.multiple&&r.elegida==null)return "Desde "+D.fmtMoneda(r.minimo,monedaDe(q));
+  if(r.multiple&&!r.eleccion)return "Desde "+D.fmtMoneda(r.minimo,monedaDe(q));
   return D.fmtMoneda(r.total,monedaDe(q));
 }
 function vencida(q){return (q.estado==="borrador"||q.estado==="enviada")&&D.fechaValida(q.fechaVencimiento)&&q.fechaVencimiento<hoyISO();}
@@ -541,7 +541,7 @@ function cotCardHTML(q){
   return '<div class="q-card" data-cot="'+esc(q.id)+'">'+
     '<div style="min-width:0;display:flex;flex-direction:column;gap:2px"><span class="q-code">'+esc(D.codigo(q.numero))+'</span><span style="font-weight:600;font-size:15.5px;overflow-wrap:anywhere">'+esc((q.cliente||{}).nombre||"Sin cliente")+(q.ejemplo?' <span class="tag-demo">Prueba</span>':'')+'</span></div>'+
     '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><span class="pill est-'+esc(q.estado)+'">'+esc(estadoLabel(q.estado))+'</span><span class="q-total">'+esc(totalTxt(q))+'</span></div>'+
-    '<div class="q-meta"><span>'+esc(v.destinos||"Destino por definir")+'</span>'+(D.fechaValida(v.fechaIda)?'<span>Viaje '+D.fmtFecha(v.fechaIda)+'</span>':'')+'<span>Elaborada '+(D.fmtFecha(q.fechaElaboracion)||"—")+'</span>'+
+    '<div class="q-meta"><span>'+esc(v.destinos||"Destino por definir")+'</span>'+(D.fechasDe(q).length>1?'<span>'+D.fechasDe(q).length+' opciones de fecha</span>':(D.fechaValida(v.fechaIda)?'<span>Viaje '+D.fmtFecha(v.fechaIda)+'</span>':''))+'<span>Elaborada '+(D.fmtFecha(q.fechaElaboracion)||"—")+'</span>'+
     (vencida(q)?'<span class="flag">Vigencia vencida el '+D.fmtFecha(q.fechaVencimiento)+'</span>':(D.fechaValida(q.fechaVencimiento)?'<span>Válida hasta '+D.fmtFecha(q.fechaVencimiento)+'</span>':''))+'</div></div>';
 }
 function listaCotHTML(){const l=filtrarCot();return l.length?l.map(cotCardHTML).join(""):'<div class="empty"><p class="muted">Ninguna cotización coincide con la búsqueda.</p></div>';}
@@ -588,7 +588,7 @@ function pintarCotizacion(){
       '<div class="pass-name">'+esc(D.codigo(q.numero))+'</div>'+
       '<div class="pass-grid"><div><div class="k">Cliente</div><div class="v">'+esc(c.nombre||"—")+'</div></div><div><div class="k">Destino</div><div class="v">'+esc(v.destinos||"Por definir")+'</div></div>'+
       '<div><div class="k">Fechas</div><div class="v num">'+esc(fechas)+'</div></div><div><div class="k">Pasajeros</div><div class="v">'+esc(D.textoPasajeros(v)||"—")+'</div></div></div></div>'+
-      '<div class="pass-stub"><div><div class="brand-sub">'+(r.multiple?(r.elegida!=null?"Opción elegida":r.opciones.length+" opciones"):"Valor total")+'</div><div class="budget">'+esc(totalTxt(q))+'</div></div><div style="font-size:12.5px;color:var(--on-navy-muted)">'+(D.fechaValida(q.fechaVencimiento)?"Válida hasta "+D.fmtFecha(q.fechaVencimiento):"Sin fecha de vigencia")+'</div></div></div>'+
+      '<div class="pass-stub"><div><div class="brand-sub">'+(r.multiple?(r.eleccion?"Opción elegida":r.todas.length+" opciones"):"Valor total")+'</div><div class="budget">'+esc(totalTxt(q))+'</div></div><div style="font-size:12.5px;color:var(--on-navy-muted)">'+(D.fechaValida(q.fechaVencimiento)?"Válida hasta "+D.fmtFecha(q.fechaVencimiento):"Sin fecha de vigencia")+'</div></div></div>'+
     panelResCot(q,puede)+
     (chk.ok?'':'<div class="errbox"><b>Para generar el PDF falta completar:</b><ul>'+chk.errores.map(e=>'<li>'+esc(e.msg)+'</li>').join("")+'</ul></div>')+
     '<div class="panel panel-pad" style="display:flex;flex-direction:column;gap:12px"><h2>Documento PDF</h2>'+
@@ -605,8 +605,9 @@ function pintarCotizacion(){
       kv("Teléfono",D.fmtTel(c.telefono))+kv("Correo",c.email)+kv("Asesor(a)",q.asesorNombre)+kv("Elaborada",D.fmtFecha(q.fechaElaboracion))+kv("Salida desde",v.ciudadSalida)+
       kv("Noches",v.noches!=null?String(v.noches):"")+kv("Aerolínea",v.aerolinea)+kv("Hotel",[v.hotel,v.categoriaHotel].filter(Boolean).join(" · "))+kv("Alimentación",v.regimen)+
       kv("Servicios incluidos",(q.servicios||[]).filter(x=>x.incluido!==false&&x.descripcion).length?String((q.servicios||[]).filter(x=>x.incluido!==false&&x.descripcion).length):"")+
-      kv("Anticipo",r.anticipo!=null?D.fmtMoneda(r.anticipo,mon):"")+kv("Saldo",r.saldo!=null&&r.completo&&(!r.multiple||r.elegida!=null)?D.fmtMoneda(r.saldo,mon):"")+
-      (r.multiple?kv("Opciones",r.opciones.map((o,i)=>(r.elegida===i?"✓ ":"")+"Opción "+(i+1)+(o.nombre?" – "+o.nombre:"")+": "+(o.completo?D.fmtMoneda(o.total,mon):"por definir")).join("\n")):"")+kv("Fecha límite de pago",D.fmtFecha((q.condiciones||{}).fechaLimitePago))+
+      kv("Anticipo",r.anticipo!=null?D.fmtMoneda(r.anticipo,mon):"")+kv("Saldo",r.saldo!=null&&r.completo&&(!r.multiple||r.eleccion)?D.fmtMoneda(r.saldo,mon):"")+
+      (r.multipleFechas?kv("Fechas",r.fechas.map((f,i)=>"Fecha "+(i+1)+": "+(D.rangoFechas(f)||"por definir")).join("\n")):"")+
+      (r.multiple?kv("Opciones",r.todas.map(o=>(r.eleccion&&r.eleccion.fecha===o.fi&&r.eleccion.opcion===o.oi?"✓ ":"")+D.etiquetaOpcion(r,o)+": "+(o.completo?D.fmtMoneda(o.total,mon):"por definir")).join("\n")):"")+kv("Fecha límite de pago",D.fmtFecha((q.condiciones||{}).fechaLimitePago))+
     '</dl></div>'+
     (puede?'<div class="sheet-foot" style="justify-content:space-between"><div class="chips">'+(S.isAdmin?'<button class="btn btn-danger" id="qDel">Eliminar</button>':'')+'<button class="btn" id="qDup">Duplicar</button></div><button class="btn btn-gold" id="qEdit">Editar cotización</button></div>':'')+
     '</div>',"","cot");
@@ -634,9 +635,9 @@ async function cambiarEstadoCot(q,nuevo){
   let qNueva=null;
   const rq=D.calcular(q);
   if(nuevo==="aceptada"&&rq.multiple){
-    const idx=await elegirOpcion(q);
-    if(idx==null){pintarCotizacion();return;}
-    qNueva=clone(q);qNueva.valores=Object.assign({},qNueva.valores,{opcionElegida:idx});
+    const el=await elegirOpcion(q);
+    if(el==null){pintarCotizacion();return;}
+    qNueva=normalizarFechas(clone(q));qNueva.valores=Object.assign({},qNueva.valores,{eleccion:el});
   }
   let marcarGanado=false;
   if(nuevo==="aceptada"&&cl&&cl.etapa!=="ganado"){
@@ -660,10 +661,10 @@ function elegirOpcion(q){
   const r=D.calcular(q),mon=monedaDe(q);
   return new Promise(res=>{
     const s=openOverlay('<div class="sheet-head"><h2>¿Qué opción eligió el cliente?</h2></div><div class="sheet-body">'+
-      '<p class="muted" style="margin:0">La cotización '+esc(D.codigo(q.numero))+' tiene '+r.opciones.length+' opciones. La elegida queda marcada en el PDF y su valor se usa en los reportes.</p>'+
-      '<div class="list">'+r.opciones.map((o,i)=>'<button type="button" class="pick" data-op="'+i+'"><span><b>Opción '+(i+1)+(o.nombre?' – '+esc(o.nombre):'')+'</b>'+(o.detalle?'<br><span class="help">'+esc(o.detalle)+'</span>':'')+'</span><b class="num">'+(o.completo?esc(D.fmtMoneda(o.total,mon)):"Por definir")+'</b></button>').join("")+'</div>'+
+      '<p class="muted" style="margin:0">La cotización '+esc(D.codigo(q.numero))+' tiene '+r.todas.length+' opciones'+(r.multipleFechas?' en '+r.fechas.length+' fechas':'')+'. La elegida queda marcada en el PDF y es la que se usa para la reserva y los pagos.</p>'+
+      '<div class="list">'+r.todas.map((o,i)=>'<button type="button" class="pick" data-op="'+i+'"><span><b>'+esc(D.etiquetaOpcion(r,o))+'</b>'+(o.detalle?'<br><span class="help">'+esc(o.detalle)+'</span>':'')+'</span><b class="num">'+(o.completo?esc(D.fmtMoneda(o.total,mon)):"Por definir")+'</b></button>').join("")+'</div>'+
       '<div class="sheet-foot"><button class="btn" id="opNo">Cancelar</button></div></div>',"confirm","elegir");
-    s.querySelectorAll("[data-op]").forEach(b=>b.onclick=()=>{closeOverlay("elegir");res(+b.dataset.op);});
+    s.querySelectorAll("[data-op]").forEach(b=>b.onclick=()=>{closeOverlay("elegir");const o=r.todas[+b.dataset.op];res({fecha:o.fi,opcion:o.oi});});
     s.querySelector("#opNo").onclick=()=>{closeOverlay("elegir");res(null);};
   });
 }
@@ -773,24 +774,35 @@ const TABS_ED=[{k:"cliente",l:"1. Cliente"},{k:"viaje",l:"2. Viaje"},{k:"servici
 const SUG_SERV=["Tiquetes aéreos","Alojamiento","Alimentación según el plan","Traslados aeropuerto – hotel – aeropuerto","Tours y actividades","Asistencia médica","Impuestos y tasas aeroportuarias"];
 const CATEG=["3 estrellas","4 estrellas","5 estrellas","Boutique","Hostal","Apartamento"];
 const REGIMEN=["Solo alojamiento","Alojamiento y desayuno","Media pensión","Pensión completa","Todo incluido"];
-let E=null,edTab="cliente",edErrores=[],edNuevoCli=false,edBusca="",edNochesManual=false,edBase="",edGuardando=false;
+let E=null,edTab="cliente",edErrores=[],edNuevoCli=false,edBusca="",edNochesMan=new Set(),edFecha=0,edBase="",edGuardando=false;
 
 function cotVacia(){
   return {numero:null,estado:"borrador",fechaElaboracion:hoyISO(),fechaVencimiento:"",asesorId:S.meId,asesorNombre:(S.perfil||{}).nombre||"",
     clienteId:null,cliente:{nombre:"",telefono:"",email:""},
-    viaje:{destinos:"",ciudadSalida:"",fechaIda:"",fechaRegreso:"",noches:null,adultos:null,ninos:null,edadesNinos:"",infantes:null,aerolinea:"",equipaje:"",tramos:[],hotel:"",categoriaHotel:"",habitacion:"",regimen:"",traslados:"",tours:"",asistencia:""},
-    servicios:[],observacionesPaquete:"",
-    valores:{moneda:"COP",opciones:[opcionVacia()],cargos:[],descuentos:[],anticipo:null,mostrarPorPersona:false},
+    viaje:{destinos:"",ciudadSalida:"",adultos:null,ninos:null,edadesNinos:"",infantes:null},
+    fechas:[D.fechaVacia()],
+    valores:{moneda:"COP",mostrarPorPersona:false},
     condiciones:{politicaAnticipo:"",fechaLimitePago:"",politicaCancelacion:"",equipaje:"",disponibilidad:"",noIncluidos:"",adicionales:""},
     historialEstados:[]};
 }
 function opcionVacia(){return {nombre:"",detalle:"",precioAdulto:null,precioNino:null,precioInfante:null};}
-function normalizarValores(e){
-  const v=e.valores||(e.valores={});
-  v.opciones=clone(D.opcionesDe(v)).map(o=>Object.assign(opcionVacia(),o));
-  delete v.precioAdulto;delete v.precioNino;delete v.precioInfante;
+/* Deja la cotización con "fechas" (una o varias). Las cotizaciones antiguas se convierten a una sola fecha. */
+function normalizarFechas(e){
+  const el=D.eleccionDe(e);
+  e.fechas=clone(D.fechasDe(e)).map(f=>{
+    const n=Object.assign(D.fechaVacia(),f);
+    n.opciones=clone(D.opcionesDe(n)).map(o=>Object.assign(opcionVacia(),o));
+    n.tramos=(n.tramos||[]).map(t=>Object.assign(D.tramoVacio(),t,{tipo:D.tipoTramo(t,n),escala:t.escala==="escala"?"escala":"directo"}));
+    ["servicios","cargos","descuentos"].forEach(k=>{if(!Array.isArray(n[k]))n[k]=[];});
+    delete n.precioAdulto;delete n.precioNino;delete n.precioInfante;
+    return n;
+  });
+  e.valores=e.valores||{};
+  if(el)e.valores.eleccion=el;else delete e.valores.eleccion;
   return e;
 }
+const FE=()=>E.fechas[edFecha]||E.fechas[0];
+const FP=k=>"fechas."+edFecha+"."+k;
 function completar(base,obj){ // rellena claves que falten sin pisar las existentes
   Object.keys(base).forEach(k=>{
     if(obj[k]===undefined)obj[k]=clone(base[k]);
@@ -801,28 +813,28 @@ function completar(base,obj){ // rellena claves que falten sin pisar las existen
 function abrirEditor(id,opts){
   if(S.readOnly||S.dbMissing){toast("No puedes guardar cambios en este modo.");return;}
   opts=opts||{};
-  if(id){const q=S.cotizaciones.find(x=>x.id===id);if(!q)return;E=completar(cotVacia(),clone(q));}
+  if(id){const q=S.cotizaciones.find(x=>x.id===id);if(!q)return;E=completar(cotVacia(),normalizarFechas(clone(q)));}
   else if(opts.duplicarDe){
     const src=S.cotizaciones.find(x=>x.id===opts.duplicarDe);if(!src)return;
-    E=completar(cotVacia(),clone(src));
+    E=completar(cotVacia(),normalizarFechas(clone(src)));
     ["id","numero","creadoEn","creadoPor","actualizadoEn","ejemplo"].forEach(k=>delete E[k]);
     E.numero=null;E.estado="borrador";E.fechaElaboracion=hoyISO();E.fechaVencimiento="";E.historialEstados=[];
     E.asesorId=S.meId;E.asesorNombre=(S.perfil||{}).nombre||src.asesorNombre||"";
     E.duplicadaDe=src.numero||null;
-    if(E.valores)delete E.valores.opcionElegida;
+    if(E.valores){delete E.valores.opcionElegida;delete E.valores.eleccion;}
   }else{
     E=cotVacia();
     if(opts.clienteId){
       const c=S.clientes.find(x=>x.id===opts.clienteId);
-      if(c){vincularCliente(c);E.viaje.destinos=c.destinos||"";if(c.fechaViaje)E.viaje.fechaIda=c.fechaViaje;if(c.adultos!=null)E.viaje.adultos=c.adultos;if(c.ninos)E.viaje.ninos=c.ninos;}
+      if(c){vincularCliente(c);E.viaje.destinos=c.destinos||"";if(c.fechaViaje)E.fechas[0].fechaIda=c.fechaViaje;if(c.adultos!=null)E.viaje.adultos=c.adultos;if(c.ninos)E.viaje.ninos=c.ninos;}
     }
   }
-  normalizarValores(E);
+  normalizarFechas(E);
   if(opts.plantillaId){const pl=S.plantillas.find(x=>x.id===opts.plantillaId);if(pl)aplicarPlantilla(pl);}
   edTab="cliente";edErrores=[];edBusca="";edGuardando=false;
   edNuevoCli=!E.clienteId&&!!(E.cliente&&E.cliente.nombre);
-  const auto=D.diasEntre(E.viaje.fechaIda,E.viaje.fechaRegreso);
-  edNochesManual=E.viaje.noches!=null&&E.viaje.noches!==auto;
+  edNochesMan=new Set();E.fechas.forEach((f,i)=>{if(f.noches!=null&&f.noches!==D.diasEntre(f.fechaIda,f.fechaRegreso))edNochesMan.add(i);});
+  edFecha=E.valores.eleccion?E.valores.eleccion.fecha:0;
   edBase=JSON.stringify(E);
   pintarEditor(true);
 }
@@ -895,114 +907,139 @@ function dupHintHTML(){
   return d?'<div class="banner warn" style="flex-wrap:wrap;align-items:center;justify-content:space-between"><span>Ya existe <b>'+esc(d.c.nombre)+'</b> con '+d.por+'.</span><button type="button" class="btn btn-sm" data-ed="pick" data-id="'+esc(d.c.id)+'">Usar ese cliente</button></div>':'';
 }
 
+function fechaSelectorHTML(){
+  const errF=new Set(edErrores.filter(e=>e.fecha!=null).map(e=>e.fecha));
+  const varias=E.fechas.length>1;
+  return '<div class="fecha-sel"><div class="opt-head"><span class="fs-title" style="margin:0">'+(varias?"Opciones de fecha":"Fecha del viaje")+'</span>'+
+      (varias?'<button type="button" class="btn btn-sm btn-ghost" data-ed="del-fecha">Quitar la fecha '+(edFecha+1)+'</button>':'')+'</div>'+
+    '<div class="chips">'+E.fechas.map((f,i)=>{const rg=D.rangoFechas(f);return '<button type="button" class="chip-toggle fecha-chip" data-ed="fecha" data-i="'+i+'" aria-pressed="'+(i===edFecha)+'">Fecha '+(i+1)+(rg?' · '+esc(rg.replace(/\/20(\d\d)/g,"/$1")):'')+(errF.has(i)?' <span class="dot-err" aria-label="con errores"></span>':'')+'</button>';}).join("")+
+    '<button type="button" class="btn btn-sm" data-ed="add-fecha">'+icon(ICON_PLUS,16)+'Agregar otra fecha</button></div>'+
+    '<p class="help" style="margin:0">'+(varias?"Estás editando la <b>fecha "+(edFecha+1)+"</b>: sus vuelos, hotel, servicios y precios. ":"")+'¿Vas a ofrecer otras fechas? Toca <b>Agregar otra fecha</b>: se copian los vuelos, el hotel, los servicios y los nombres de las opciones; cambias las fechas y escribes sus precios.</p></div>';
+}
+function tramoHTML(t,i){
+  const k=c=>FP("tramos."+i+"."+c),id=c=>"e_"+k(c).replace(/\./g,"_");
+  const bad=edErrores.some(e=>e.campo==="tramo_"+edFecha+"_"+i)?" bad":"";
+  const sel=(c,opts,v)=>'<select class="input" id="'+id(c)+'" data-k="'+k(c)+'" data-t="text">'+opts.map(o=>'<option value="'+o[0]+'"'+(o[0]===v?" selected":"")+'>'+esc(o[1])+'</option>').join("")+'</select>';
+  return '<div class="sub-card"><div class="opt-head"><b>Trayecto '+(i+1)+'</b><button type="button" class="icon-btn" data-ed="del" data-list="'+FP("tramos")+'" data-i="'+i+'" aria-label="Quitar trayecto '+(i+1)+'">'+icon(ICON_X,18)+'</button></div>'+
+    '<div class="grid3">'+
+      '<div class="field"><label for="'+id("tipo")+'">Tipo</label>'+sel("tipo",D.TIPOS_TRAMO.map(x=>[x.k,x.l]),t.tipo)+'</div>'+
+      '<div class="field"><label for="'+id("fecha")+'">Fecha</label><input class="input'+bad+'" id="'+id("fecha")+'" data-campo="tramo_'+edFecha+'_'+i+'" type="date" data-k="'+k("fecha")+'" data-t="date" value="'+esc(t.fecha||"")+'"><span class="help" data-fecha-de="'+k("fecha")+'">'+(t.fecha?D.fmtFecha(t.fecha):"DD/MM/AAAA")+'</span></div>'+
+      '<div class="field"><label for="'+id("ruta")+'">Ruta</label><input class="input" id="'+id("ruta")+'" data-k="'+k("ruta")+'" data-t="text" maxlength="120" placeholder="Cúcuta – Cartagena" value="'+esc(t.ruta||"")+'"></div>'+
+      '<div class="field"><label for="'+id("vuelo")+'">Número de vuelo</label><input class="input" id="'+id("vuelo")+'" data-k="'+k("vuelo")+'" data-t="text" maxlength="30" placeholder="Si ya se conoce" value="'+esc(t.vuelo||"")+'"></div>'+
+      '<div class="field"><label for="'+id("salida")+'">Sale</label><input class="input" id="'+id("salida")+'" type="time" data-k="'+k("salida")+'" data-t="time" value="'+esc(t.salida||"")+'"></div>'+
+      '<div class="field"><label for="'+id("llegada")+'">Llega</label><input class="input" id="'+id("llegada")+'" type="time" data-k="'+k("llegada")+'" data-t="time" value="'+esc(t.llegada||"")+'"></div>'+
+      '<div class="field"><label for="'+id("escala")+'">Tipo de vuelo</label>'+sel("escala",[["directo","Directo"],["escala","Con escala"]],t.escala)+'</div>'+
+      '<div class="field" data-escala-en="'+i+'"'+(t.escala==="escala"?'':' hidden')+'><label for="'+id("escalaEn")+'">¿Dónde es la escala?</label><input class="input" id="'+id("escalaEn")+'" data-k="'+k("escalaEn")+'" data-t="text" maxlength="80" placeholder="Ej.: Bogotá" value="'+esc(t.escalaEn||"")+'"></div>'+
+    '</div></div>';
+}
 function edTabViaje(){
-  const tramos=E.viaje.tramos||[];
+  const f=FE(),tramos=f.tramos||[];
   return '<div class="fieldset">'+
-    '<span class="fs-title">Destino y fechas</span><div class="grid2">'+
+    '<span class="fs-title">Destino y pasajeros</span><p class="help" style="margin:0">Esto es igual para todas las fechas.</p><div class="grid2">'+
       fld("Destino o destinos *","viaje.destinos","text",{campo:"v_destinos",max:160,span:true,ph:"Ej.: Cancún y Riviera Maya"})+
-      fld("Ciudad de salida","viaje.ciudadSalida","text",{max:80,ph:"Ej.: Cúcuta"})+
-      fld("Noches","viaje.noches","int",{campo:"v_noches",maxN:365,help:"Se calcula con las fechas; puedes cambiarlo."})+
-      fld("Fecha de ida","viaje.fechaIda","date",{campo:"v_ida"})+
-      fld("Fecha de regreso","viaje.fechaRegreso","date",{campo:"v_regreso"})+'</div>'+
-    '<span class="fs-title">Pasajeros</span><div class="grid3">'+
+      fld("Ciudad de salida","viaje.ciudadSalida","text",{max:80,ph:"Ej.: Cúcuta"})+'</div>'+
+    '<div class="grid3">'+
       fld("Adultos","viaje.adultos","int",{campo:"v_adultos"})+
       fld("Niños","viaje.ninos","int",{campo:"v_ninos"})+
       fld("Infantes (menores de 2 años)","viaje.infantes","int",{campo:"v_infantes"})+'</div>'+
       fld("Edades de los niños","viaje.edadesNinos","text",{campo:"v_edades",max:60,im:"numeric",ph:"Ej.: 5, 8",help:"Separadas por comas, una por cada niño."})+
+    fechaSelectorHTML()+
+    '<div class="grid3">'+
+      fld("Fecha de ida","fechas."+edFecha+".fechaIda","date",{campo:"f"+edFecha+"_ida"})+
+      fld("Fecha de regreso","fechas."+edFecha+".fechaRegreso","date",{campo:"f"+edFecha+"_regreso"})+
+      fld("Noches","fechas."+edFecha+".noches","int",{campo:"f"+edFecha+"_noches",maxN:365,help:"Se calcula con las fechas; puedes cambiarlo."})+'</div>'+
     '<span class="fs-title">Vuelos</span><div class="grid2">'+
-      fld("Aerolínea","viaje.aerolinea","text",{max:80,ph:"Si ya se conoce"})+
-      fld("Equipaje incluido","viaje.equipaje","text",{max:200,ph:"Ej.: maleta de 23 kg + artículo personal"})+'</div>'+
-      '<div class="rowlist">'+tramos.map((t,i)=>'<div class="ritem tramo">'+
-        '<div class="field"><label for="e_viaje_tramos_'+i+'_fecha">Fecha</label><input class="input'+(edErrores.some(e=>e.campo==="tramo_"+i)?" bad":"")+'" id="e_viaje_tramos_'+i+'_fecha" data-campo="tramo_'+i+'" type="date" data-k="viaje.tramos.'+i+'.fecha" data-t="date" value="'+esc(t.fecha||"")+'"></div>'+
-        '<div class="field"><label for="e_viaje_tramos_'+i+'_ruta">Trayecto</label><input class="input" id="e_viaje_tramos_'+i+'_ruta" data-k="viaje.tramos.'+i+'.ruta" data-t="text" maxlength="120" placeholder="Cúcuta – Bogotá" value="'+esc(t.ruta||"")+'"></div>'+
-        '<div class="field"><label for="e_viaje_tramos_'+i+'_vuelo">Vuelo</label><input class="input" id="e_viaje_tramos_'+i+'_vuelo" data-k="viaje.tramos.'+i+'.vuelo" data-t="text" maxlength="30" value="'+esc(t.vuelo||"")+'"></div>'+
-        '<div class="field"><label for="e_viaje_tramos_'+i+'_salida">Sale</label><input class="input" id="e_viaje_tramos_'+i+'_salida" type="time" data-k="viaje.tramos.'+i+'.salida" data-t="time" value="'+esc(t.salida||"")+'"></div>'+
-        '<div class="field"><label for="e_viaje_tramos_'+i+'_llegada">Llega</label><input class="input" id="e_viaje_tramos_'+i+'_llegada" type="time" data-k="viaje.tramos.'+i+'.llegada" data-t="time" value="'+esc(t.llegada||"")+'"></div>'+
-        '<button type="button" class="icon-btn" data-ed="del" data-list="viaje.tramos" data-i="'+i+'" aria-label="Quitar trayecto '+(i+1)+'">'+icon(ICON_X,18)+'</button></div>').join("")+'</div>'+
-      '<div><button type="button" class="btn btn-sm" data-ed="add-tramo">'+icon(ICON_PLUS,16)+'Agregar trayecto aéreo</button></div>'+
+      fld("Aerolínea","fechas."+edFecha+".aerolinea","text",{max:80,ph:"Si ya se conoce"})+
+      fld("Equipaje incluido","fechas."+edFecha+".equipaje","text",{max:200,ph:"Ej.: maleta de 23 kg + artículo personal"})+'</div>'+
+      '<div class="rowlist">'+tramos.map(tramoHTML).join("")+'</div>'+
+      '<div class="actions"><button type="button" class="btn btn-sm" data-ed="add-tramo">'+icon(ICON_PLUS,16)+(tramos.length?'Agregar trayecto':'Agregar trayecto de ida')+'</button>'+
+        (tramos.length&&!tramos.some(t=>t.tipo==="regreso")?'<button type="button" class="btn btn-sm" data-ed="add-regreso">'+icon(ICON_PLUS,16)+'Agregar regreso (invertir la ida)</button>':'')+'</div>'+
     '<span class="fs-title">Alojamiento</span><div class="grid2">'+
-      fld("Nombre del hotel","viaje.hotel","text",{max:120,span:true})+
-      fld("Categoría","viaje.categoriaHotel","text",{max:60,list:"dl_categ"})+
-      fld("Tipo de habitación","viaje.habitacion","text",{max:100,ph:"Ej.: doble, vista al mar"})+
-      fld("Régimen de alimentación","viaje.regimen","text",{max:80,list:"dl_reg",span:true})+'</div>'+
+      fld("Nombre del hotel","fechas."+edFecha+".hotel","text",{max:120,span:true})+
+      fld("Categoría","fechas."+edFecha+".categoriaHotel","text",{max:60,list:"dl_categ"})+
+      fld("Tipo de habitación","fechas."+edFecha+".habitacion","text",{max:100,ph:"Ej.: doble, vista al mar"})+
+      fld("Régimen de alimentación","fechas."+edFecha+".regimen","text",{max:80,list:"dl_reg",span:true})+'</div>'+
       '<datalist id="dl_categ">'+CATEG.map(x=>'<option value="'+esc(x)+'">').join("")+'</datalist><datalist id="dl_reg">'+REGIMEN.map(x=>'<option value="'+esc(x)+'">').join("")+'</datalist>'+
     '<span class="fs-title">En destino</span>'+
-      fld("Traslados","viaje.traslados","text",{max:200})+
-      fld("Tours y actividades","viaje.tours","textarea",{max:2000})+
-      fld("Asistencia médica","viaje.asistencia","text",{max:200})+
+      fld("Traslados","fechas."+edFecha+".traslados","text",{max:200})+
+      fld("Tours y actividades","fechas."+edFecha+".tours","textarea",{max:2000})+
+      fld("Asistencia médica","fechas."+edFecha+".asistencia","text",{max:200})+
   '</div>';
 }
 function edTabServicios(){
-  const sv=E.servicios||[];
+  const sv=FE().servicios||[];
   const presentes=new Set(sv.map(x=>String(x.descripcion||"").trim().toLowerCase()));
   const sug=SUG_SERV.filter(x=>!presentes.has(x.toLowerCase()));
-  return '<div class="fieldset"><span class="fs-title">Servicios</span>'+
+  return '<div class="fieldset">'+(E.fechas.length>1?fechaSelectorHTML():'')+'<span class="fs-title">Servicios</span>'+
     '<p class="help" style="margin:0">Marca cada servicio como incluido o no incluido. Solo aparece en el PDF lo que agregues aquí.</p>'+
     '<div class="rowlist">'+(sv.length?sv.map((x,i)=>'<div class="ritem serv">'+
-      '<input class="input" aria-label="Descripción del servicio '+(i+1)+'" data-k="servicios.'+i+'.descripcion" data-t="text" maxlength="300" placeholder="Descripción del servicio" value="'+esc(x.descripcion||"")+'">'+
+      '<input class="input" aria-label="Descripción del servicio '+(i+1)+'" data-k="'+FP("servicios."+i+".descripcion")+'" data-t="text" maxlength="300" placeholder="Descripción del servicio" value="'+esc(x.descripcion||"")+'">'+
       '<button type="button" class="toggle-inc" data-ed="tog-serv" data-i="'+i+'" aria-pressed="'+(x.incluido!==false)+'">'+(x.incluido!==false?"Incluido":"No incluido")+'</button>'+
-      '<button type="button" class="icon-btn" data-ed="del" data-list="servicios" data-i="'+i+'" aria-label="Quitar servicio '+(i+1)+'">'+icon(ICON_X,18)+'</button></div>').join(""):'<p class="muted" style="margin:0">Aún no hay servicios.</p>')+'</div>'+
+      '<button type="button" class="icon-btn" data-ed="del" data-list="'+FP("servicios")+'" data-i="'+i+'" aria-label="Quitar servicio '+(i+1)+'">'+icon(ICON_X,18)+'</button></div>').join(""):'<p class="muted" style="margin:0">Aún no hay servicios.</p>')+'</div>'+
     '<div><button type="button" class="btn btn-sm" data-ed="add-serv">'+icon(ICON_PLUS,16)+'Agregar servicio</button></div>'+
     (sug.length?'<div class="field"><span class="label">Atajos: toca para agregar como incluido</span><div class="chips">'+sug.map(x=>'<button type="button" class="chip-toggle" data-ed="sug-serv" data-v="'+esc(x)+'">'+esc(x)+'</button>').join("")+'</div></div>':'')+
     '<span class="fs-title">Observaciones del paquete</span>'+
-    fld("Observaciones específicas de este paquete","observacionesPaquete","textarea",{max:4000})+
+    fld("Observaciones específicas de este paquete",FP("observacionesPaquete"),"textarea",{max:4000})+
   '</div>';
 }
-function lineaCat(i,k){
-  const r=D.calcular(E),mon=E.valores.moneda,o=r.opciones[i];if(!o)return "";
+function lineaCat(fi,i,k){
+  const r=D.calcular(E),mon=E.valores.moneda,f=r.fechas[fi],o=f&&f.opciones[i];if(!o)return "";
   const l=o.lineas.find(x=>x.k===k);
   if(!l)return "Sin pasajeros en esta categoría";
   return l.cant+" × "+(l.unit!=null?D.fmtMoneda(l.unit,mon):"sin precio")+" = "+(l.subtotal!=null?D.fmtMoneda(l.subtotal,mon):"falta el precio");
 }
 function calcHTML(){
-  const r=D.calcular(E),mon=E.valores.moneda,f=n=>D.fmtMoneda(n,mon);
+  const r=D.calcular(E),mon=E.valores.moneda,fm=n=>D.fmtMoneda(n,mon),rf=r.fechas[edFecha]||r.fechas[0];
   let h='';
   if(!r.pax)return '<div class="calc"><div class="calc-row"><span class="muted">Indica los pasajeros en la pestaña Viaje.</span></div></div>';
-  r.opciones.forEach((o,i)=>{
+  const varias=rf.opciones.length>1;
+  rf.opciones.forEach((o,i)=>{
     h+='<div class="calc">';
-    if(r.multiple)h+='<div class="calc-row"><b>Opción '+(i+1)+(o.nombre?' – '+esc(o.nombre):'')+'</b></div>';
-    o.lineas.forEach(l=>{h+='<div class="calc-row"><span>'+esc(l.concepto)+' ('+l.cant+')</span><b>'+(l.subtotal!=null?f(l.subtotal):'<span class="err">Falta el precio</span>')+'</b></div>';});
-    if(r.totalCargos)h+='<div class="calc-row"><span>Otros cargos</span><b>'+f(r.totalCargos)+'</b></div>';
-    if(r.totalDescuentos)h+='<div class="calc-row"><span>Descuentos</span><b>'+f(-r.totalDescuentos)+'</b></div>';
-    h+='<div class="calc-total"><span>'+(r.multiple?"Total opción "+(i+1):"Valor total")+'</span><b>'+(o.completo?f(o.total):"Por definir")+'</b></div>';
-    if(o.completo&&r.pax>1)h+='<div class="calc-row"><span>Promedio por pasajero ('+r.pax+')</span><b>'+f(o.porPersona)+'</b></div>';
-    if(r.anticipo!=null&&o.completo)h+='<div class="calc-row"><span>Saldo después del anticipo</span><b>'+f(o.saldo)+'</b></div>';
+    if(varias)h+='<div class="calc-row"><b>Opción '+(i+1)+(o.nombre?' – '+esc(o.nombre):'')+'</b></div>';
+    o.lineas.forEach(l=>{h+='<div class="calc-row"><span>'+esc(l.concepto)+' ('+l.cant+')</span><b>'+(l.subtotal!=null?fm(l.subtotal):'<span class="err">Falta el precio</span>')+'</b></div>';});
+    if(rf.totalCargos)h+='<div class="calc-row"><span>Otros cargos</span><b>'+fm(rf.totalCargos)+'</b></div>';
+    if(rf.totalDescuentos)h+='<div class="calc-row"><span>Descuentos</span><b>'+fm(-rf.totalDescuentos)+'</b></div>';
+    h+='<div class="calc-total"><span>'+(varias?"Total opción "+(i+1):"Valor total")+(r.multipleFechas?" · fecha "+(edFecha+1):"")+'</span><b>'+(o.completo?fm(o.total):"Por definir")+'</b></div>';
+    if(o.completo&&r.pax>1)h+='<div class="calc-row"><span>Promedio por pasajero ('+r.pax+')</span><b>'+fm(o.porPersona)+'</b></div>';
+    if(rf.anticipo!=null&&o.completo)h+='<div class="calc-row"><span>Saldo después del anticipo</span><b>'+fm(o.saldo)+'</b></div>';
     h+='</div>';
   });
-  if(r.anticipo!=null)h+='<div class="calc"><div class="calc-row"><span>Anticipo requerido</span><b>'+f(r.anticipo)+'</b></div></div>';
+  if(rf.anticipo!=null)h+='<div class="calc"><div class="calc-row"><span>Anticipo requerido</span><b>'+fm(rf.anticipo)+'</b></div></div>';
+  if(r.multipleFechas)h+='<div class="calc"><div class="calc-row"><b>Resumen de todas las fechas</b></div>'+r.todas.map(o=>'<div class="calc-row"><span>'+esc(D.etiquetaOpcion(r,o))+'</span><b>'+(o.completo?fm(o.total):'<span class="err">Faltan precios</span>')+'</b></div>').join("")+'</div>';
   return '<div class="calc-stack">'+h+'</div>';
 }
 function listaMontos(path,etq){
-  const l=getP(E,path)||[],pre=path==="valores.cargos"?"cargo_":"desc_";
+  const l=getP(E,path)||[],pre=(/cargos$/.test(path)?"cargo_":"desc_")+edFecha+"_";
   return '<div class="rowlist">'+l.map((x,i)=>'<div class="ritem monto">'+
     '<div class="field"><label for="e_'+pre+i+'c">Concepto</label><input class="input" id="e_'+pre+i+'c" data-k="'+path+'.'+i+'.concepto" data-t="text" maxlength="120" value="'+esc(x.concepto||"")+'"></div>'+
     '<div class="field"><label for="e_'+pre+i+'v">Valor</label><input class="input num'+(edErrores.some(e=>e.campo===pre+i)?" bad":"")+'" id="e_'+pre+i+'v" data-campo="'+pre+i+'" data-k="'+path+'.'+i+'.valor" data-t="money" inputmode="numeric" autocomplete="off" value="'+esc(montoTxt(x.valor))+'"></div>'+
     '<button type="button" class="icon-btn" data-ed="del" data-list="'+path+'" data-i="'+i+'" aria-label="Quitar '+etq+' '+(i+1)+'">'+icon(ICON_X,18)+'</button></div>').join("")+'</div>';
 }
 function edTabValores(){
-  const v=E.viaje,n=k=>D.enteroONulo(v[k])||0;
+  const v=E.viaje,n=k=>D.enteroONulo(v[k])||0,f=FE(),fi=edFecha;
   return '<div class="fieldset">'+
     fld("Moneda","valores.moneda","select",{opts:Object.keys(D.MONEDAS).map(k=>[k,D.MONEDAS[k].l])})+
-    '<span class="fs-title">Precios por pasajero</span>'+
+    (E.fechas.length>1?fechaSelectorHTML():'')+
+    '<span class="fs-title">Precios por pasajero'+(E.fechas.length>1?' · fecha '+(fi+1):'')+'</span>'+
     '<p class="help" style="margin:0">¿Vas a ofrecer más de una alternativa (por ejemplo, solo desayuno y todo incluido)? Agrega otra opción de precio: cada una tiene su nombre, sus precios y su total en el PDF.</p>'+
-    E.valores.opciones.map((op,i)=>{
-      const varias=E.valores.opciones.length>1;
+    f.opciones.map((op,i)=>{
+      const varias=f.opciones.length>1,base="fechas."+fi+".opciones."+i+".";
       return '<div class="opt-card"><div class="opt-head"><b>'+(varias?"Opción "+(i+1):"Precios")+'</b><div class="actions">'+
         '<button type="button" class="btn btn-sm" data-ed="dup-opcion" data-i="'+i+'">Duplicar</button>'+
         (varias?'<button type="button" class="icon-btn" data-ed="del-opcion" data-i="'+i+'" aria-label="Quitar opción '+(i+1)+'">'+icon(ICON_X,18)+'</button>':'')+'</div></div>'+
-        '<div class="grid2">'+fld(varias?"Nombre de la opción *":"Nombre de la opción (opcional)","valores.opciones."+i+".nombre","text",{campo:"op_"+i+"_nombre",max:120,ph:"Ej.: Hotel Sunrise – Todo incluido"})+
-        fld("Detalle (opcional)","valores.opciones."+i+".detalle","text",{max:200,ph:"Ej.: Habitación doble vista al mar"})+'</div>'+
+        '<div class="grid2">'+fld(varias?"Nombre de la opción *":"Nombre de la opción (opcional)",base+"nombre","text",{campo:"op_"+fi+"_"+i+"_nombre",max:120,ph:"Ej.: Hotel Sunrise – Todo incluido"})+
+        fld("Detalle (opcional)",base+"detalle","text",{max:200,ph:"Ej.: Habitación doble vista al mar"})+'</div>'+
         [["precioAdulto","Precio por adulto","adultos"],["precioNino","Precio por niño","ninos"],["precioInfante","Precio por infante","infantes"]].map(([k,l,c])=>
-          '<div class="price-line">'+fld(l+(n(c)?" ("+n(c)+")":""),"valores.opciones."+i+"."+k,"money",{campo:"op_"+i+"_"+k,ph:n(c)?"Escribe el precio (0 si no tiene costo)":"Sin pasajeros"})+'<span class="sub" data-sub="'+i+':'+c+'">'+esc(lineaCat(i,c))+'</span></div>').join("")+
+          '<div class="price-line">'+fld(l+(n(c)?" ("+n(c)+")":""),base+k,"money",{campo:"op_"+fi+"_"+i+"_"+k,ph:n(c)?"Escribe el precio (0 si no tiene costo)":"Sin pasajeros"})+'<span class="sub" data-sub="'+fi+':'+i+':'+c+'">'+esc(lineaCat(fi,i,c))+'</span></div>').join("")+
       '</div>';
     }).join("")+
     '<div><button type="button" class="btn" data-ed="add-opcion">'+icon(ICON_PLUS,16)+'Agregar otra opción de precio</button></div>'+
-    '<span class="fs-title">Otros cargos</span>'+(E.valores.opciones.length>1?'<p class="help" style="margin:0">Los cargos y descuentos se aplican a todas las opciones.</p>':'')+listaMontos("valores.cargos","cargo")+
+    '<span class="fs-title">Otros cargos</span>'+(f.opciones.length>1?'<p class="help" style="margin:0">Los cargos y descuentos se aplican a todas las opciones de esta fecha.</p>':'')+listaMontos("fechas."+fi+".cargos","cargo")+
     '<div><button type="button" class="btn btn-sm" data-ed="add-cargo">'+icon(ICON_PLUS,16)+'Agregar cargo</button></div>'+
-    '<span class="fs-title">Descuentos</span>'+listaMontos("valores.descuentos","descuento")+
+    '<span class="fs-title">Descuentos</span>'+listaMontos("fechas."+fi+".descuentos","descuento")+
     '<div><button type="button" class="btn btn-sm" data-ed="add-desc">'+icon(ICON_PLUS,16)+'Agregar descuento</button></div>'+
     '<span class="fs-title">Pago</span>'+
-    fld("Anticipo requerido","valores.anticipo","money",{campo:"p_anticipo",ph:"Sin anticipo definido"})+
+    fld("Anticipo requerido","fechas."+fi+".anticipo","money",{campo:"p_anticipo_"+fi,ph:"Sin anticipo definido"})+
     '<label class="check"><input type="checkbox" id="e_porPersona" data-k="valores.mostrarPorPersona" data-t="bool"'+(E.valores.mostrarPorPersona?" checked":"")+'> Mostrar en el PDF el valor promedio por pasajero</label>'+
     '<span class="fs-title">Resumen</span><div id="calcBox">'+calcHTML()+'</div>'+
   '</div>';
@@ -1024,7 +1061,7 @@ function edTotalHTML(){
   const r=D.calcular(E),mon=E.valores.moneda;
   let t;
   if(!r.pax)t="—";
-  else if(r.multiple)t=r.minimo!=null?(r.opciones.length+" opciones · desde "+D.fmtMoneda(r.minimo,mon)):"Faltan precios";
+  else if(r.multiple)t=r.minimo!=null?(r.todas.length+" opciones · desde "+D.fmtMoneda(r.minimo,mon)):"Faltan precios";
   else t=r.completo?D.fmtMoneda(r.total,mon):"Faltan precios";
   return '<span>'+(r.pax?r.pax+(r.pax===1?" pasajero":" pasajeros"):"Sin pasajeros")+'</span><b>'+esc(t)+'</b>';
 }
@@ -1036,7 +1073,7 @@ function pintarEditor(arriba){
     '<div class="sheet-head"><h2>'+(E.id?"Editar "+esc(D.codigo(E.numero)):"Nueva cotización")+'</h2><div class="actions"><button type="button" class="btn btn-sm" data-ed="guardar-plantilla">Guardar como plantilla</button><button type="button" class="btn btn-ghost btn-sm" data-ed="close">Cerrar</button></div></div>'+
     '<div class="ed-tabs" role="tablist">'+TABS_ED.map(t=>'<button type="button" class="ed-tab" role="tab" data-ed="tab" data-tab="'+t.k+'" aria-selected="'+(t.k===edTab)+'">'+t.l+(err.has(t.k)?'<span class="dot" aria-label="con errores"></span>':'')+'</button>').join("")+'</div>'+
     '<div class="ed-scroll"><form class="sheet-body" id="edForm" novalidate>'+
-      (edErrores.length?'<div class="errbox" role="alert"><b>Revisa estos datos:</b><ul>'+edErrores.map(e=>'<li><button type="button" data-ed="goto" data-tab="'+e.tab+'" data-campo="'+esc(e.campo||"")+'">'+esc(e.msg)+'</button></li>').join("")+'</ul></div>':'')+
+      (edErrores.length?'<div class="errbox" role="alert"><b>Revisa estos datos:</b><ul>'+edErrores.map(e=>'<li><button type="button" data-ed="goto" data-tab="'+e.tab+'" data-fecha="'+(e.fecha!=null?e.fecha:"")+'" data-campo="'+esc(e.campo||"")+'">'+esc(e.msg)+'</button></li>').join("")+'</ul></div>':'')+
       cuerpo+
     '</form></div>'+
     '<div class="ed-foot"><div class="ed-total" id="edTotal">'+edTotalHTML()+'</div><div class="actions">'+
@@ -1065,11 +1102,15 @@ function edInput(ev){
   setP(E,path,v);
   el.classList.remove("bad");
   if(t==="date"){const h=el.closest(".field")&&el.closest(".field").querySelector("[data-fecha-de]");if(h)h.textContent=v?D.fmtFecha(v):"DD/MM/AAAA";}
-  if(path==="viaje.noches")edNochesManual=v!=null;
-  if((path==="viaje.fechaIda"||path==="viaje.fechaRegreso")&&!edNochesManual){
-    const n=D.diasEntre(E.viaje.fechaIda,E.viaje.fechaRegreso);
-    if(n!=null&&n>=0){E.viaje.noches=n;const ni=document.getElementById("e_viaje_noches");if(ni)ni.value=n;}
+  const mf=path.match(/^fechas\.(\d+)\.(noches|fechaIda|fechaRegreso)$/);
+  if(mf){
+    const fi=+mf[1],f=E.fechas[fi];
+    if(mf[2]==="noches"){if(v!=null)edNochesMan.add(fi);else edNochesMan.delete(fi);}
+    else if(!edNochesMan.has(fi)){const n=D.diasEntre(f.fechaIda,f.fechaRegreso);if(n!=null&&n>=0){f.noches=n;const ni=document.getElementById("e_fechas_"+fi+"_noches");if(ni)ni.value=n;}}
+    if(mf[2]!=="noches"){const ch=document.querySelector('#overlayRoot [data-ed="fecha"][data-i="'+fi+'"]');if(ch){const rg=D.rangoFechas(f);ch.firstChild.textContent="Fecha "+(fi+1)+(rg?" · "+rg.replace(/\/20(\d\d)/g,"/$1"):"");}}
   }
+  const me=path.match(/^fechas\.\d+\.tramos\.(\d+)\.escala$/);
+  if(me){const w=document.querySelector('#overlayRoot [data-escala-en="'+me[1]+'"]');if(w)w.hidden=v!=="escala";}
   if(path.startsWith("cliente.")){const dh=document.getElementById("dupHint");if(dh)dh.innerHTML=dupHintHTML();}
   if(path==="valores.moneda"&&ev.type==="change"){pintarEditor();return;}
   actualizarCalc();
@@ -1077,7 +1118,7 @@ function edInput(ev){
 function actualizarCalc(){
   const t=document.getElementById("edTotal");if(t)t.innerHTML=edTotalHTML();
   const cb=document.getElementById("calcBox");if(cb)cb.innerHTML=calcHTML();
-  document.querySelectorAll("[data-sub]").forEach(el=>{const p=el.dataset.sub.split(":");el.textContent=lineaCat(+p[0],p[1]);});
+  document.querySelectorAll("[data-sub]").forEach(el=>{const p=el.dataset.sub.split(":");el.textContent=lineaCat(+p[0],+p[1],p[2]);});
 }
 async function edClick(ev){
   const b=ev.target.closest("[data-ed]");if(!b)return;
@@ -1087,22 +1128,52 @@ async function edClick(ev){
     if(JSON.stringify(E)!==edBase&&!(await confirmar("¿Salir sin guardar?","Los cambios que no guardaste se perderán.","Salir sin guardar",true)))return;
     closeOverlay("editor");E=null;return;
   }
-  if(a==="goto"){edTab=b.dataset.tab;pintarEditor(true);const c=b.dataset.campo;if(c){const el=document.querySelector('#overlayRoot [data-campo="'+c+'"]');if(el){el.focus();el.scrollIntoView({block:"center"});}}return;}
+  if(a==="goto"){edTab=b.dataset.tab;if(b.dataset.fecha!=="")edFecha=+b.dataset.fecha;pintarEditor(true);const c=b.dataset.campo;if(c){const el=document.querySelector('#overlayRoot [data-campo="'+c+'"]');if(el){el.focus();el.scrollIntoView({block:"center"});}}return;}
   if(a==="pick"){const c=S.clientes.find(x=>x.id===b.dataset.id);if(c){vincularCliente(c);if(!E.viaje.destinos&&c.destinos)E.viaje.destinos=c.destinos;}edErrores=edErrores.filter(e=>["cliBusca","c_tel","c_nombre","c_email"].indexOf(e.campo)<0);pintarEditor();return;}
   if(a==="nuevo-cli"){edNuevoCli=true;E.clienteId=null;if(!E.cliente.nombre&&edBusca&&!/\d{3}/.test(edBusca))E.cliente.nombre=edBusca.trim();pintarEditor();const n=document.getElementById("e_cliente_nombre");if(n)n.focus();return;}
   if(a==="buscar-cli"){edNuevoCli=false;pintarEditor();return;}
   if(a==="cambiar-cli"){E.clienteId=null;E.cliente={nombre:"",telefono:"",email:""};edNuevoCli=false;edBusca="";pintarEditor();return;}
-  if(a==="add-tramo"){E.viaje.tramos.push({fecha:"",ruta:"",vuelo:"",salida:"",llegada:""});pintarEditor();return;}
-  if(a==="add-serv"){E.servicios.push({descripcion:"",incluido:true});pintarEditor();const ins=document.querySelectorAll('#overlayRoot [data-k^="servicios."]');if(ins.length)ins[ins.length-1].focus();return;}
-  if(a==="sug-serv"){E.servicios.push({descripcion:b.dataset.v,incluido:true});pintarEditor();return;}
-  if(a==="tog-serv"){const x=E.servicios[+b.dataset.i];x.incluido=x.incluido===false;b.setAttribute("aria-pressed",String(x.incluido));b.textContent=x.incluido?"Incluido":"No incluido";return;}
-  if(a==="add-opcion"){E.valores.opciones.push(opcionVacia());pintarEditor();const ins=document.querySelectorAll('#overlayRoot [data-k$=".nombre"][data-k^="valores.opciones."]');if(ins.length){ins[ins.length-1].focus();ins[ins.length-1].scrollIntoView({block:"center"});}return;}
-  if(a==="dup-opcion"){const o=clone(E.valores.opciones[+b.dataset.i]);o.nombre=o.nombre?o.nombre+" (copia)":"";E.valores.opciones.splice(+b.dataset.i+1,0,o);pintarEditor();return;}
+  if(a==="fecha"){edFecha=+b.dataset.i;pintarEditor();return;}
+  if(a==="add-fecha"){
+    const n=clone(FE());n.fechaIda="";n.fechaRegreso="";n.noches=null;
+    (n.tramos||[]).forEach(t=>{t.fecha="";t.salida="";t.llegada="";t.vuelo="";});
+    (n.opciones||[]).forEach(o=>{o.precioAdulto=null;o.precioNino=null;o.precioInfante=null;});
+    n.anticipo=null;
+    E.fechas.push(n);edFecha=E.fechas.length-1;edNochesMan.delete(edFecha);
+    if(E.valores.eleccion)delete E.valores.eleccion;
+    edTab="viaje";pintarEditor(true);toast("Fecha "+(edFecha+1)+" agregada: escribe sus fechas, vuelos y precios.");
+    const fi=document.getElementById("e_fechas_"+edFecha+"_fechaIda");if(fi){fi.scrollIntoView({block:"center"});fi.focus();}
+    return;
+  }
+  if(a==="del-fecha"){
+    if(E.fechas.length<2)return;
+    if(!(await confirmar("¿Quitar la fecha "+(edFecha+1)+"?","Se borrarán sus fechas, vuelos, hotel, servicios y precios.","Quitar",true)))return;
+    E.fechas.splice(edFecha,1);delete E.valores.eleccion;
+    const nm=new Set();edNochesMan.forEach(i=>{if(i<edFecha)nm.add(i);else if(i>edFecha)nm.add(i-1);});edNochesMan=nm;
+    edFecha=Math.max(0,edFecha-1);edErrores=[];pintarEditor(true);return;
+  }
+  if(a==="add-tramo"){
+    const f=FE(),ts=f.tramos,ult=ts[ts.length-1];
+    const t=D.tramoVacio(ult?(ult.tipo==="regreso"?"regreso":"tramo"):"ida");
+    if(!ult){t.fecha=f.fechaIda||"";if(E.viaje.ciudadSalida&&E.viaje.destinos)t.ruta=E.viaje.ciudadSalida+" – "+E.viaje.destinos;}
+    else{t.fecha=ult.fecha||"";const p=String(ult.ruta||"").split(/\s+[–—-]\s+/);if(p.length>1)t.ruta=p[p.length-1]+" – ";}
+    ts.push(t);pintarEditor();return;
+  }
+  if(a==="add-regreso"){
+    const f=FE(),ida=f.tramos.filter(t=>t.tipo!=="regreso");
+    ida.slice().reverse().forEach(t=>{const p=String(t.ruta||"").split(/\s+[–—-]\s+/);f.tramos.push(Object.assign(D.tramoVacio("regreso"),{fecha:f.fechaRegreso||"",ruta:p.length>1?p.slice().reverse().join(" – "):"",escala:t.escala,escalaEn:t.escalaEn}));});
+    pintarEditor();toast("Se agregó el regreso. Revisa la fecha, el vuelo y las horas.");return;
+  }
+  if(a==="add-serv"){FE().servicios.push({descripcion:"",incluido:true});pintarEditor();const ins=document.querySelectorAll('#overlayRoot [data-k^="'+FP("servicios.")+'"]');if(ins.length)ins[ins.length-1].focus();return;}
+  if(a==="sug-serv"){FE().servicios.push({descripcion:b.dataset.v,incluido:true});pintarEditor();return;}
+  if(a==="tog-serv"){const x=FE().servicios[+b.dataset.i];x.incluido=x.incluido===false;b.setAttribute("aria-pressed",String(x.incluido));b.textContent=x.incluido?"Incluido":"No incluido";return;}
+  if(a==="add-opcion"){FE().opciones.push(opcionVacia());delete E.valores.eleccion;pintarEditor();const ins=document.querySelectorAll('#overlayRoot [data-k$=".nombre"][data-k^="'+FP("opciones.")+'"]');if(ins.length){ins[ins.length-1].focus();ins[ins.length-1].scrollIntoView({block:"center"});}return;}
+  if(a==="dup-opcion"){const ops=FE().opciones,o=clone(ops[+b.dataset.i]);o.nombre=o.nombre?o.nombre+" (copia)":"";ops.splice(+b.dataset.i+1,0,o);delete E.valores.eleccion;pintarEditor();return;}
   if(a==="del-opcion"){
-    if(E.valores.opciones.length<2)return;
-    const o=E.valores.opciones[+b.dataset.i];
+    const ops=FE().opciones;if(ops.length<2)return;
+    const o=ops[+b.dataset.i];
     if((o.nombre||o.precioAdulto!=null)&&!(await confirmar("¿Quitar la opción "+(+b.dataset.i+1)+"?","Se borrarán su nombre y sus precios.","Quitar",true)))return;
-    E.valores.opciones.splice(+b.dataset.i,1);delete E.valores.opcionElegida;edErrores=[];pintarEditor();return;
+    ops.splice(+b.dataset.i,1);delete E.valores.eleccion;edErrores=[];pintarEditor();return;
   }
   if(a==="usar-plantilla"){
     const sel=document.getElementById("plSel");const pl=sel&&S.plantillas.find(x=>x.id===sel.value);
@@ -1111,8 +1182,8 @@ async function edClick(ev){
     aplicarPlantilla(pl);pintarEditor();toast("Plantilla aplicada. Completa cliente, fechas, pasajeros y precios.");return;
   }
   if(a==="guardar-plantilla"){await dialogoGuardarPlantilla();return;}
-  if(a==="add-cargo"){E.valores.cargos.push({concepto:"",valor:null});pintarEditor();return;}
-  if(a==="add-desc"){E.valores.descuentos.push({concepto:"",valor:null});pintarEditor();return;}
+  if(a==="add-cargo"){FE().cargos.push({concepto:"",valor:null});pintarEditor();return;}
+  if(a==="add-desc"){FE().descuentos.push({concepto:"",valor:null});pintarEditor();return;}
   if(a==="del"){const l=getP(E,b.dataset.list);l.splice(+b.dataset.i,1);edErrores=[];pintarEditor();return;}
   if(a==="cond-cargar"){await cargarCondiciones();return;}
   if(a==="cond-guardar"){await guardarCondiciones();return;}
@@ -1275,33 +1346,38 @@ function bindEditorSeguimientos(v){
 const SIN_PLANTILLA_VIAJE=["fechaIda","fechaRegreso","adultos","ninos","edadesNinos","infantes"];
 function tieneContenido(e){
   const v=e.viaje||{};
-  return !!(String(v.destinos||"").trim()||String(v.hotel||"").trim()||(e.servicios||[]).some(x=>String(x.descripcion||"").trim())||(e.valores.opciones||[]).some(o=>String(o.nombre||"").trim()));
+  return !!(String(v.destinos||"").trim()||(e.fechas||[]).some(f=>String(f.hotel||"").trim()||(f.servicios||[]).some(x=>String(x.descripcion||"").trim())||(f.opciones||[]).some(o=>String(o.nombre||"").trim())));
 }
+/* La plantilla guarda destino, vuelos (sin fechas ni horas), hotel, servicios, condiciones, cargos y nombres de las opciones de cada fecha. */
 function datosDePlantilla(e){
-  const v=clone(e.viaje||{});SIN_PLANTILLA_VIAJE.forEach(k=>delete v[k]);
-  v.tramos=(v.tramos||[]).filter(t=>["ruta","vuelo","salida","llegada"].some(k=>String(t[k]||"").trim())).map(t=>Object.assign({},t,{fecha:""}));
+  const v={destinos:(e.viaje||{}).destinos||"",ciudadSalida:(e.viaje||{}).ciudadSalida||""};
+  const fechas=(e.fechas||[]).map(f0=>{
+    const f=clone(f0);f.fechaIda="";f.fechaRegreso="";f.noches=null;f.anticipo=null;
+    f.tramos=(f.tramos||[]).filter(t=>["ruta","vuelo","escalaEn"].some(k=>String(t[k]||"").trim())).map(t=>Object.assign({},t,{fecha:"",salida:"",llegada:""}));
+    f.servicios=(f.servicios||[]).filter(x=>String(x.descripcion||"").trim());
+    f.opciones=(f.opciones||[]).map(o=>({nombre:o.nombre||"",detalle:o.detalle||"",precioAdulto:null,precioNino:null,precioInfante:null}));
+    f.cargos=(f.cargos||[]).filter(x=>String(x.concepto||"").trim()||typeof x.valor==="number");
+    f.descuentos=(f.descuentos||[]).filter(x=>String(x.concepto||"").trim()||typeof x.valor==="number");
+    return f;
+  });
   const c=clone(e.condiciones||{});delete c.fechaLimitePago;
-  const val=e.valores||{};
-  return {viaje:v,servicios:clone((e.servicios||[]).filter(x=>String(x.descripcion||"").trim())),observacionesPaquete:e.observacionesPaquete||"",condiciones:c,
-    valores:{moneda:val.moneda||"COP",opciones:(val.opciones||[]).map(o=>({nombre:o.nombre||"",detalle:o.detalle||"",precioAdulto:null,precioNino:null,precioInfante:null})),
-      cargos:clone((val.cargos||[]).filter(x=>String(x.concepto||"").trim()||typeof x.valor==="number")),descuentos:clone((val.descuentos||[]).filter(x=>String(x.concepto||"").trim()||typeof x.valor==="number")),mostrarPorPersona:!!val.mostrarPorPersona}};
+  return {viaje:v,fechas:fechas,condiciones:c,valores:{moneda:(e.valores||{}).moneda||"COP",mostrarPorPersona:!!(e.valores||{}).mostrarPorPersona}};
 }
 function aplicarPlantilla(pl){
-  const d=pl.datos||{},base=cotVacia();
-  const conservar={};SIN_PLANTILLA_VIAJE.forEach(k=>{conservar[k]=E.viaje[k];});
-  E.viaje=Object.assign(clone(base.viaje),clone(d.viaje||{}),conservar);
-  if(!Array.isArray(E.viaje.tramos))E.viaje.tramos=[];
-  E.servicios=clone(d.servicios||[]);
-  E.observacionesPaquete=d.observacionesPaquete||"";
+  const d=clone(pl.datos||{}),base=cotVacia();
+  // Plantillas antiguas (sin "fechas") se convierten igual que una cotización antigua.
+  const fs=normalizarFechas({viaje:d.viaje||{},servicios:d.servicios,observacionesPaquete:d.observacionesPaquete,valores:d.valores||{},fechas:d.fechas}).fechas;
+  const prev=E.fechas[0]||{};
+  fs.forEach(f=>{f.opciones=f.opciones.map(o=>Object.assign(opcionVacia(),{nombre:o.nombre||"",detalle:o.detalle||""}));});
+  if(fs[0]){fs[0].fechaIda=prev.fechaIda||"";fs[0].fechaRegreso=prev.fechaRegreso||"";const n=D.diasEntre(fs[0].fechaIda,fs[0].fechaRegreso);fs[0].noches=n!=null&&n>=0?n:null;}
+  E.fechas=fs.length?fs:[D.fechaVacia()];
+  const dv=d.viaje||{};
+  E.viaje=Object.assign(E.viaje,{destinos:dv.destinos||E.viaje.destinos||"",ciudadSalida:dv.ciudadSalida||E.viaje.ciudadSalida||""});
   E.condiciones=Object.assign(clone(base.condiciones),clone(d.condiciones||{}),{fechaLimitePago:E.condiciones.fechaLimitePago||""});
-  const dv=d.valores||{};
-  E.valores=Object.assign({},E.valores,{moneda:dv.moneda||"COP",opciones:(dv.opciones&&dv.opciones.length?dv.opciones:[opcionVacia()]).map(o=>Object.assign(opcionVacia(),{nombre:o.nombre||"",detalle:o.detalle||""})),
-    cargos:clone(dv.cargos||[]),descuentos:clone(dv.descuentos||[]),mostrarPorPersona:!!dv.mostrarPorPersona});
-  delete E.valores.opcionElegida;
-  E.plantillaId=pl.id;
-  const n=D.diasEntre(E.viaje.fechaIda,E.viaje.fechaRegreso);
-  if(n!=null&&n>=0)E.viaje.noches=n;
-  edNochesManual=false;
+  const vv=d.valores||{};
+  E.valores=Object.assign({},E.valores,{moneda:vv.moneda||"COP",mostrarPorPersona:!!vv.mostrarPorPersona});
+  delete E.valores.eleccion;delete E.valores.opcionElegida;
+  E.plantillaId=pl.id;edFecha=0;edNochesMan=new Set();
 }
 function plantillaSelectorHTML(){
   if(S.faltaActualizacion)return "";
@@ -1315,9 +1391,9 @@ function plantillaSelectorHTML(){
 async function dialogoGuardarPlantilla(){
   if(S.faltaActualizacion){toast("Falta ejecutar la actualización 2 de la base de datos para usar plantillas.");return;}
   const datos=datosDePlantilla(E);
-  if(!String(datos.viaje.destinos||"").trim()&&!datos.servicios.length){toast("Escribe al menos el destino o los servicios antes de guardar la plantilla.");return;}
+  if(!String(datos.viaje.destinos||"").trim()&&!datos.fechas.some(f=>f.servicios.length)){toast("Escribe al menos el destino o los servicios antes de guardar la plantilla.");return;}
   const actual=E.plantillaId&&S.plantillas.find(x=>x.id===E.plantillaId);
-  const sugerido=actual?actual.nombre:[E.viaje.destinos,E.viaje.noches?E.viaje.noches+" noches":""].filter(Boolean).join(" ");
+  const sugerido=actual?actual.nombre:[E.viaje.destinos,FE().noches?FE().noches+" noches":""].filter(Boolean).join(" ");
   const s=openOverlay('<div class="sheet-head"><h2>Guardar como plantilla</h2></div><div class="sheet-body">'+
     '<p class="muted" style="margin:0">Se guardan el destino, los vuelos (sin fechas), el hotel, los servicios, las observaciones, las condiciones, los cargos y los nombres de las opciones de precio. <b>No</b> se guardan el cliente, las fechas, los pasajeros ni los precios por pasajero.</p>'+
     '<div class="field"><label for="plNom">Nombre de la plantilla</label><input class="input" id="plNom" maxlength="120" value="'+esc(sugerido)+'" placeholder="Ej.: San Andrés 4 noches"></div>'+
@@ -1343,8 +1419,8 @@ function abrirPlantillas(){
   const puedeBorrar=p=>S.isAdmin||p.creadoPor===S.meId;
   const s=openOverlay('<div class="sheet-head"><h2>Plantillas de cotización</h2><button class="btn btn-ghost btn-sm" id="tpClose">Cerrar</button></div><div class="sheet-body">'+
     (S.faltaActualizacion?'<div class="banner warn">Para usar plantillas falta ejecutar la actualización 2 de la base de datos en Supabase.</div>':
-    (lista.length?'<div class="panel">'+lista.map(p=>{const v=(p.datos||{}).viaje||{},ops=((p.datos||{}).valores||{}).opciones||[];
-      return '<div class="eq-row"><div class="eq-who"><b>'+esc(p.nombre)+'</b><span class="help">'+esc([v.destinos,v.hotel,ops.length>1?ops.length+" opciones de precio":""].filter(Boolean).join(" · ")||"Sin destino")+'</span><span class="help">Actualizada '+fmtFechaTs(p.actualizadoEn)+'</span></div>'+
+    (lista.length?'<div class="panel">'+lista.map(p=>{const v=(p.datos||{}).viaje||{},f0=D.fechasDe(p.datos||{})[0]||{},ops=D.opcionesDe(f0),nf=((p.datos||{}).fechas||[]).length;
+      return '<div class="eq-row"><div class="eq-who"><b>'+esc(p.nombre)+'</b><span class="help">'+esc([v.destinos,f0.hotel,nf>1?nf+" fechas":"",ops.length>1?ops.length+" opciones de precio":""].filter(Boolean).join(" · ")||"Sin destino")+'</span><span class="help">Actualizada '+fmtFechaTs(p.actualizadoEn)+'</span></div>'+
         '<div class="eq-actions"><button class="btn btn-sm btn-gold" data-tp-usar="'+esc(p.id)+'">Usar</button>'+(puedeBorrar(p)?'<button class="btn btn-sm" data-tp-del="'+esc(p.id)+'">Eliminar</button>':'')+'</div></div>';}).join("")+'</div>':
       '<div class="panel empty"><p class="muted">Aún no hay plantillas. Abre o crea una cotización y toca <b>Guardar como plantilla</b>.</p></div>'))+
     '<p class="help" style="margin:0">Para editar una plantilla: tócale <b>Usar</b>, haz los cambios y vuelve a tocar <b>Guardar como plantilla → Actualizar</b>.</p></div>',"","plantillas");
@@ -1378,13 +1454,14 @@ function cuerpoCot(e){
   const b=clone(e);delete b.id;
   const limpiarNum=o=>{Object.keys(o).forEach(k=>{if(typeof o[k]==="number"&&!isFinite(o[k]))o[k]=null;else if(o[k]&&typeof o[k]==="object")limpiarNum(o[k]);});};
   limpiarNum(b);
-  b.servicios=(b.servicios||[]).filter(x=>String(x.descripcion||"").trim());
-  b.viaje.tramos=(b.viaje.tramos||[]).filter(t=>["fecha","ruta","vuelo","salida","llegada"].some(k=>String(t[k]||"").trim()));
-  delete b.valores.precioAdulto;delete b.valores.precioNino;delete b.valores.precioInfante;
   delete b.plantillaId;
-  b.valores.cargos=(b.valores.cargos||[]).filter(x=>String(x.concepto||"").trim()||typeof x.valor==="number");
-  b.valores.descuentos=(b.valores.descuentos||[]).filter(x=>String(x.concepto||"").trim()||typeof x.valor==="number");
-  return b;
+  (b.fechas||[]).forEach(f=>{
+    f.servicios=(f.servicios||[]).filter(x=>String(x.descripcion||"").trim());
+    f.tramos=(f.tramos||[]).filter(t=>["fecha","ruta","vuelo","salida","llegada","escalaEn"].some(k=>String(t[k]||"").trim()));
+    f.cargos=(f.cargos||[]).filter(x=>String(x.concepto||"").trim()||typeof x.valor==="number");
+    f.descuentos=(f.descuentos||[]).filter(x=>String(x.concepto||"").trim()||typeof x.valor==="number");
+  });
+  return D.sincronizar(b);
 }
 
 async function guardarCot(modo){
@@ -1411,7 +1488,7 @@ async function guardarCot(modo){
   const ahora=new Date().toISOString();
   if(!E.clienteId){
     const row=await guardar(()=>api.crearCliente({nombre:E.cliente.nombre.trim(),telefono:E.cliente.telefono.trim(),email:(E.cliente.email||"").trim(),origen:"Otro",
-      destinos:E.viaje.destinos||"",fechaViaje:E.viaje.fechaIda||null,adultos:D.enteroONulo(E.viaje.adultos),ninos:D.enteroONulo(E.viaje.ninos),etapa:"nuevo",asesorId:S.meId}));
+      destinos:E.viaje.destinos||"",fechaViaje:(E.fechas[0]||{}).fechaIda||null,adultos:D.enteroONulo(E.viaje.adultos),ninos:D.enteroONulo(E.viaje.ninos),etapa:"nuevo",asesorId:S.meId}));
     if(!row)return fin(false);
     await api.agregarHistorial(row.id,"Registro","Cliente registrado desde una cotización.");
     E.clienteId=row.id;edNuevoCli=false;
@@ -1644,7 +1721,8 @@ function paxDesdeConteo(nombre,ad,ni,inf){
   return l;
 }
 function reservaDesdeCot(q){
-  const r=reservaNueva(),v=q.viaje||{},c=q.cliente||{},rq=D.calcular(q);
+  const rq=D.calcular(q),fq=D.fechasDe(q)[rq.eleccion?rq.eleccion.fecha:0]||{},c=q.cliente||{};
+  const v=Object.assign({},q.viaje||{},fq,{tramos:fq.tramos||[]}),r=reservaNueva();
   r.clienteId=q.clienteId||null;r.cotizacionId=q.id;
   r.titular={nombre:c.nombre||"",telefono:c.telefono||"",email:c.email||""};
   r.destino=v.destinos||"";r.fechaInicio=v.fechaIda||"";r.fechaFin=v.fechaRegreso||"";
@@ -1652,18 +1730,22 @@ function reservaDesdeCot(q){
   const tramos=(v.tramos||[]).filter(t=>t.fecha||t.ruta||t.vuelo);
   if(tramos.length||v.aerolinea){
     const vu=RV.vueloVacio();vu.aerolinea=v.aerolinea||"";vu.equipaje=v.equipaje||"";
-    vu.trayectos=tramos.length?tramos.map(t=>{const p=String(t.ruta||"").split(/\s*[–—-]\s*|\s+a\s+/);return Object.assign(RV.trayectoVacio(t.fecha&&t.fecha===v.fechaRegreso?"regreso":"ida"),{fecha:t.fecha||"",origen:p[0]||"",destino:p.slice(1).join(" – "),vuelo:t.vuelo||"",salida:t.salida||"",llegada:t.llegada||""});})
+    vu.trayectos=tramos.length?[].concat(...tramos.map(t=>{
+        const p=String(t.ruta||"").split(/\s*[–—-]\s*|\s+a\s+/),tipo=D.tipoTramo(t,v),ori=p[0]||"",des=p.slice(1).join(" – ");
+        const base={fecha:t.fecha||"",vuelo:t.vuelo||""};
+        if(t.escala==="escala"&&String(t.escalaEn||"").trim())return [Object.assign(RV.trayectoVacio(tipo),base,{origen:ori,destino:t.escalaEn.trim(),salida:t.salida||""}),Object.assign(RV.trayectoVacio(tipo),{fecha:t.fecha||"",origen:t.escalaEn.trim(),destino:des,llegada:t.llegada||""})];
+        return [Object.assign(RV.trayectoVacio(tipo),base,{origen:ori,destino:des,salida:t.salida||"",llegada:t.llegada||""})];}))
       :[Object.assign(RV.trayectoVacio("ida"),{fecha:v.fechaIda||"",origen:v.ciudadSalida||"",destino:v.destinos||""}),Object.assign(RV.trayectoVacio("regreso"),{fecha:v.fechaRegreso||"",origen:v.destinos||"",destino:v.ciudadSalida||""})];
     r.vuelos=[vu];
   }
   if(v.hotel){
-    const op=rq.elegida!=null?rq.opciones[rq.elegida]:null;
+    const op=rq.eleccion?rq.fechas[rq.eleccion.fecha].opciones[rq.eleccion.opcion]:null;
     r.hoteles=[Object.assign(RV.hotelVacio(),{nombre:v.hotel,ciudad:v.destinos||"",entrada:v.fechaIda||"",salida:v.fechaRegreso||"",habitacion:v.habitacion||"",adultos:D.enteroONulo(v.adultos),ninos:D.enteroONulo(v.ninos),
       alimentacion:RV.ALIMENTACION.find(a=>a.toLowerCase()===String(v.regimen||"").toLowerCase())||(v.regimen?"":""),alimentacionDetalle:[v.regimen&&!RV.ALIMENTACION.some(a=>a.toLowerCase()===String(v.regimen).toLowerCase())?v.regimen:"",op&&op.nombre?"Plan elegido: "+op.nombre:""].filter(Boolean).join(" · ")})];
   }
   if(v.traslados)r.traslados=[Object.assign(RV.trasladoVacio(),{tipo:v.traslados})];
   if(v.tours)r.actividades=[{titulo:"Actividades en "+(v.destinos||"destino"),items:[Object.assign(RV.actividadVacia(),{nombre:"",incluye:v.tours})]}];
-  r.incluye=(q.servicios||[]).filter(x=>x.descripcion).map(x=>({descripcion:x.descripcion,incluido:x.incluido!==false}));
+  r.incluye=(fq.servicios||q.servicios||[]).filter(x=>x.descripcion).map(x=>({descripcion:x.descripcion,incluido:x.incluido!==false}));
   if(v.asistencia)r.asistencia.compania=v.asistencia;
   r.asesorNombre=q.asesorNombre||r.asesorNombre;
   return r;
@@ -2129,7 +2211,7 @@ const planFirma=()=>JSON.stringify({v:PE.valorTotal,m:PE.moneda,c:PE.cobros,p:PE
 function valorCotizacion(r){
   const q=r.cotizacionId&&S.cotizaciones.find(x=>x.id===r.cotizacionId);if(!q)return null;
   const c=D.calcular(q);if(!c.completo)return null;
-  if(c.multiple&&c.elegida==null)return null;
+  if(c.multiple&&!c.eleccion)return null;
   return Math.round(c.total);
 }
 function abrirPlanPagos(rid){
@@ -2517,8 +2599,9 @@ function deFilaCliente(r){
     fechaViaje:r.fecha_viaje||null,adultos:r.adultos,ninos:r.ninos,presupuesto:r.presupuesto==null?null:Number(r.presupuesto),intereses:r.intereses||[],preferencias:r.preferencias||"",
     etapa:r.etapa,asesorId:r.asesor_id,creadoPor:r.creado_por,creadoEn:r.creado_en,actualizadoEn:r.actualizado_en,ultimoContacto:r.ultimo_contacto,cerradoEn:r.cerrado_en,ejemplo:!!r.ejemplo};
 }
-const DATOS_COT=["cliente","viaje","servicios","observacionesPaquete","valores","condiciones","asesorNombre","duplicadaDe"];
-function aFilaCot(q){
+const DATOS_COT=["cliente","viaje","fechas","servicios","observacionesPaquete","valores","condiciones","asesorNombre","duplicadaDe"];
+function aFilaCot(q0){
+  const q=D.sincronizar(clone(q0));
   const d={};DATOS_COT.forEach(k=>{if(q[k]!==undefined)d[k]=q[k];});
   const r=D.calcular(q);
   return {estado:q.estado||"borrador",cliente_id:q.clienteId||null,fecha_elaboracion:q.fechaElaboracion||hoyISO(),fecha_vencimiento:q.fechaVencimiento||null,
