@@ -22,6 +22,7 @@ const VIEWS=[
   {k:"cotizaciones",l:"Cotizaciones",i:'<path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3v5h5M8.5 13h7M8.5 16.5h4.5"/>'},
   {k:"reservas",l:"Reservas",i:'<rect x="3.5" y="7" width="17" height="13" rx="2"/><path d="M8.5 7V5.2A1.7 1.7 0 0 1 10.2 3.5h3.6a1.7 1.7 0 0 1 1.7 1.7V7M3.5 12.5h17M10 12.5v2h4v-2"/>'},
   {k:"pagos",l:"Pagos",i:'<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10.5h18M7 15h4"/><path d="M16.5 15h1"/>'},
+  {k:"resumen",l:"Resumen",extra:true,i:'<path d="M4 20h16"/><path d="M6.5 16.5v-5M11 16.5V7M15.5 16.5v-7M20 16.5V4.5"/>'},
   {k:"respaldo",l:"Respaldo",extra:true,i:'<path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>'},
   {k:"equipo",l:"Equipo",admin:true,extra:true,i:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.9-3.6 3.6-5.5 7-5.5s6.1 1.9 7 5.5"/><path d="M19 3.5l.8 1.6 1.7.3-1.2 1.2.3 1.7-1.6-.8-1.6.8.3-1.7-1.2-1.2 1.7-.3z"/>'}
 ];
@@ -53,7 +54,7 @@ function icon(path,size){return '<svg viewBox="0 0 24 24" width="'+(size||22)+'"
 
 /* ---------- State ---------- */
 const S={
-  sb:null,session:null,perfil:null,equipo:[],config:{},hist:{},plantillas:[],segs:[],faltaActualizacion:false,segTodos:false,solicitudes:[],faltaFormulario:false,reservas:[],resReady:false,faltaReservas:false,rq:"",restado:"activas",pagos:[],abonos:[],faltaPagos:false,pTipo:"todos",pPeriodo:"semana",
+  sb:null,session:null,perfil:null,equipo:[],config:{},hist:{},plantillas:[],segs:[],faltaActualizacion:false,segTodos:false,solicitudes:[],faltaFormulario:false,reservas:[],resReady:false,faltaReservas:false,rq:"",restado:"activas",pagos:[],abonos:[],faltaPagos:false,pTipo:"todos",pPeriodo:"semana",mes:"todos",mesRes:"",
   meId:null,isAdmin:false,
   ready:false,dbMissing:false,readOnly:false,loadError:null,
   clientes:[],cotizaciones:[],cotReady:false,
@@ -195,7 +196,7 @@ function viewInicio(){
   const maxN=Math.max(1,...conteo.map(x=>x.n));
 
   let h='<div class="page-head"><div><span class="eyebrow">Resumen de '+MESES[now.getMonth()]+' '+now.getFullYear()+'</span><h1>Buen día, equipo Diamond</h1></div>'+
-    (S.readOnly||S.dbMissing?'':'<button class="btn btn-gold" data-act="nuevo">'+icon('<path d="M12 5v14M5 12h14"/>',18)+'Nuevo cliente</button>')+'</div>';
+    '<div class="actions"><button class="btn" data-view-go="resumen">Resumen del mes</button>'+(S.readOnly||S.dbMissing?'':'<button class="btn btn-gold" data-act="nuevo">'+icon('<path d="M12 5v14M5 12h14"/>',18)+'Nuevo cliente</button>')+'</div></div>';
   h+=bannerEstado();
   if(!S.ready&&!S.dbMissing)return h+'<div class="panel empty"><p class="muted">Cargando clientes…</p></div>';
   if(!cs.length)return h+vacioInicial();
@@ -226,6 +227,7 @@ function filtrar(){
   return S.clientes.filter(c=>{
     if(S.etapa!=="todas"&&c.etapa!==S.etapa)return false;
     if(S.mine&&c.asesorId!==S.meId)return false;
+    if(S.mes!=="todos"&&mesClave(c.creadoEn)!==S.mes)return false;
     if(!q)return true;
     return [c.nombre,c.telefono,c.email,c.destinos,c.ciudad].some(v=>String(v||"").toLowerCase().includes(q));
   }).sort((a,b)=>String(b.actualizadoEn||"").localeCompare(String(a.actualizadoEn||"")));
@@ -237,8 +239,9 @@ function viewClientes(){
   if(!S.ready&&!S.dbMissing)return h+'<div class="panel empty"><p class="muted">Cargando clientes…</p></div>';
   if(!S.clientes.length)return h+vacioInicial();
   h+='<div class="toolbar"><input class="input search" id="fq" type="search" placeholder="Buscar por nombre, teléfono, correo o destino" value="'+esc(S.q)+'" aria-label="Buscar clientes">'+
-    '<select class="input" id="fe" style="width:auto;flex:0 1 210px" aria-label="Filtrar por etapa"><option value="todas">Todas las etapas</option>'+ETAPAS.map(e=>'<option value="'+e.k+'"'+(S.etapa===e.k?" selected":"")+'>'+e.l+'</option>').join("")+'</select>'+
+    selectMesHTML("fMes",S.mes,true)+'<select class="input" id="fe" style="width:auto;flex:0 1 210px" aria-label="Filtrar por etapa"><option value="todas">Todas las etapas</option>'+ETAPAS.map(e=>'<option value="'+e.k+'"'+(S.etapa===e.k?" selected":"")+'>'+e.l+'</option>').join("")+'</select>'+
     (S.meId?'<div class="seg" role="group" aria-label="Mostrar"><button id="fAll" aria-pressed="'+(!S.mine)+'">Todos</button><button id="fMine" aria-pressed="'+S.mine+'">Míos</button></div>':'')+'</div>';
+  h+=avisoMes(filtrar().length,"cliente registrado","clientes registrados","en");
   h+='<div class="panel" id="clientList">'+listaClientesHTML()+'</div>';
   return h;
 }
@@ -297,7 +300,7 @@ function viewRespaldo(){
 function render(){
   renderNav();renderMe();
   const v=document.getElementById("view");
-  const fn={inicio:viewInicio,clientes:viewClientes,embudo:viewEmbudo,cotizaciones:viewCotizaciones,reservas:viewReservas,pagos:viewPagos,respaldo:viewRespaldo,equipo:viewEquipo}[S.view]||viewInicio;
+  const fn={inicio:viewInicio,clientes:viewClientes,embudo:viewEmbudo,cotizaciones:viewCotizaciones,reservas:viewReservas,pagos:viewPagos,resumen:viewResumen,respaldo:viewRespaldo,equipo:viewEquipo}[S.view]||viewInicio;
   v.innerHTML=fn();
   bindView();
 }
@@ -328,6 +331,9 @@ function bindView(){
   if(S.view==="inicio")bindSeguimientos(v);
   if(S.view==="reservas")bindReservas(v);
   if(S.view==="pagos")bindVistaPagos(v);
+  if(S.view==="resumen")bindResumen(v);
+  v.querySelectorAll("[data-mes]").forEach(sel=>sel.onchange=()=>{S.mes=sel.value;render();});
+  v.querySelectorAll("[data-mes-quitar]").forEach(b=>b.onclick=()=>{S.mes="todos";render();});
   if(S.view==="inicio"){const ph=v.querySelector("#pagosHoy");if(ph)bindPagos(ph);}
   v.querySelectorAll("[data-res]").forEach(el=>el.onclick=()=>abrirReserva(el.dataset.res));
 }
@@ -530,6 +536,7 @@ const clone=o=>JSON.parse(JSON.stringify(o==null?null:o));
 function filtrarCot(){
   const t=S.cq.trim().toLowerCase();
   return S.cotizaciones.filter(q=>{
+    if(S.mes!=="todos"&&mesDeCot(q)!==S.mes)return false;
     if(S.cestado!=="todas"&&q.estado!==S.cestado)return false;
     if(!t)return true;
     const c=q.cliente||{},v=q.viaje||{};
@@ -555,8 +562,9 @@ function viewCotizaciones(){
     (S.readOnly||S.dbMissing?'':'<button class="btn btn-gold" data-act="nueva-cot">Crear la primera cotización</button>')+'</div>';
   const cuenta=k=>S.cotizaciones.filter(q=>q.estado===k).length;
   h+='<div class="toolbar"><input class="input search" id="qq" type="search" placeholder="Buscar por número, cliente, teléfono o destino" value="'+esc(S.cq)+'" aria-label="Buscar cotizaciones">'+
-    '<select class="input" id="qe" style="width:auto;flex:0 1 220px" aria-label="Filtrar por estado"><option value="todas">Todos los estados ('+S.cotizaciones.length+')</option>'+
+    selectMesHTML("qMes",S.mes,true)+'<select class="input" id="qe" style="width:auto;flex:0 1 220px" aria-label="Filtrar por estado"><option value="todas">Todos los estados ('+S.cotizaciones.length+')</option>'+
     D.ESTADOS.map(e=>'<option value="'+e.k+'"'+(S.cestado===e.k?" selected":"")+'>'+e.l+' ('+cuenta(e.k)+')</option>').join("")+'</select></div>';
+  h+=avisoMes(filtrarCot().length,"cotización elaborada","cotizaciones elaboradas","en");
   h+='<div class="panel" id="cotList">'+listaCotHTML()+'</div>';
   return h;
 }
@@ -1521,6 +1529,7 @@ function filtrarRes(){
   return S.reservas.filter(r=>{
     if(S.restado==="activas"&&!RES_ACTIVA(r))return false;
     if(S.restado!=="activas"&&S.restado!=="todas"&&r.estado!==S.restado)return false;
+    if(S.mes!=="todos"&&mesDeRes(r)!==S.mes)return false;
     if(!t)return true;
     return [RV.codigo(r.numero),(r.titular||{}).nombre,(r.titular||{}).telefono,r.destino,...(r.pasajeros||[]).map(p=>p.nombre),...(r.vuelos||[]).map(v=>v.codigoReserva)].some(x=>String(x||"").toLowerCase().includes(t));
   }).sort((a,b)=>{
@@ -1550,8 +1559,9 @@ function viewReservas(){
     (S.readOnly||S.dbMissing?'':'<button class="btn btn-gold" data-act="nueva-res">Crear una reserva</button>')+'</div>';
   const cuenta=k=>S.reservas.filter(r=>r.estado===k).length;
   h+='<div class="toolbar"><input class="input search" id="rq" type="search" placeholder="Buscar por número, titular, pasajero, destino o código de reserva" value="'+esc(S.rq)+'" aria-label="Buscar reservas">'+
-    '<select class="input" id="re" style="width:auto;flex:0 1 230px" aria-label="Filtrar por estado"><option value="activas"'+(S.restado==="activas"?" selected":"")+'>Activas ('+S.reservas.filter(RES_ACTIVA).length+')</option><option value="todas"'+(S.restado==="todas"?" selected":"")+'>Todas ('+S.reservas.length+')</option>'+
+    selectMesHTML("rMes",S.mes,true)+'<select class="input" id="re" style="width:auto;flex:0 1 230px" aria-label="Filtrar por estado"><option value="activas"'+(S.restado==="activas"?" selected":"")+'>Activas ('+S.reservas.filter(RES_ACTIVA).length+')</option><option value="todas"'+(S.restado==="todas"?" selected":"")+'>Todas ('+S.reservas.length+')</option>'+
     RV.ESTADOS.map(e=>'<option value="'+e.k+'"'+(S.restado===e.k?" selected":"")+'>'+e.l+' ('+cuenta(e.k)+')</option>').join("")+'</select></div>';
+  h+=avisoMes(filtrarRes().length,"venta (reserva) creada","ventas (reservas) creadas","en")+(S.mes!=="todos"&&S.restado==="activas"?'<p class="help" style="margin:-6px 0 0">Se muestran solo las reservas activas; para incluir las finalizadas elige “Todas” en el estado.</p>':'');
   h+='<div class="panel" id="resList">'+listaResHTML()+'</div>';
   return h;
 }
@@ -2411,6 +2421,143 @@ function bindDatosPago(v){
   const b=v.querySelector("#dpGuardar");if(!b)return;
   b.onclick=async()=>{const val=Object.assign({},S.config.pagos||{},{datosPago:v.querySelector("#dpTxt").value.trim()});
     if(await guardar(()=>api.guardarConfig("pagos",val))){S.config.pagos=val;toast("Datos de pago guardados");}};
+}
+
+/* =====================================================================
+   MESES: filtro por mes y resumen mensual
+   ===================================================================== */
+const MESES_L=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+const mesLabel=k=>{const p=String(k||"").split("-");return p.length===2?MESES_L[+p[1]-1]+" "+p[0]:"";};
+const mesCorto=k=>MESES_L[+String(k).split("-")[1]-1].slice(0,3);
+const mesActual=()=>hoyISO().slice(0,7);
+function mesMover(k,n){let [y,m]=k.split("-").map(Number);m+=n;while(m<1){m+=12;y--;}while(m>12){m-=12;y++;}return y+"-"+pad(m);}
+const mesDeCot=q=>String(q.fechaElaboracion||"").slice(0,7)||mesClave(q.creadoEn);
+const mesDeRes=r=>mesClave(r.creadoEn);
+function fechaAceptada(q){return (q.historialEstados||[]).filter(x=>x.estado==="aceptada").map(x=>x.fecha).sort().pop()||null;}
+function mesesDisponibles(){
+  const ks=[mesActual()];
+  S.clientes.forEach(c=>ks.push(mesClave(c.creadoEn)));
+  S.cotizaciones.forEach(q=>ks.push(mesDeCot(q)));
+  S.reservas.forEach(r=>ks.push(mesDeRes(r)));
+  S.abonos.forEach(a=>ks.push(String(a.fecha||"").slice(0,7)));
+  const validos=ks.filter(k=>/^\d{4}-\d{2}$/.test(k)).sort();
+  const out=[];let k=mesActual();const min=validos[0]||k;
+  for(let i=0;i<60&&k>=min;i++){out.push(k);k=mesMover(k,-1);}
+  return out;
+}
+function selectMesHTML(id,val,conTodos,attr){
+  return '<select class="input" id="'+id+'" '+(attr||'data-mes')+' style="width:auto;flex:0 1 190px" aria-label="Filtrar por mes">'+
+    (conTodos?'<option value="todos"'+(val==="todos"?" selected":"")+'>Todos los meses</option>':'')+
+    mesesDisponibles().map(k=>'<option value="'+k+'"'+(k===val?" selected":"")+'>'+esc(mesLabel(k).replace(/^./,c=>c.toUpperCase()))+'</option>').join("")+'</select>';
+}
+function avisoMes(n,uno,varios,cuando){
+  if(S.mes==="todos")return "";
+  return '<p class="help mes-aviso">'+n+" "+(n===1?uno:varios)+" "+cuando+" "+esc(mesLabel(S.mes))+'. <button type="button" class="linkbtn" data-mes-quitar>Ver todos los meses</button></p>';
+}
+function valorReserva(r){const t=resumenCobros(r).total;return t!=null?t:valorCotizacion(r);}
+function monRes(r){if(r.monedaPagos)return r.monedaPagos;const q=r.cotizacionId&&S.cotizaciones.find(x=>x.id===r.cotizacionId);return q?monedaDe(q):"COP";}
+function valorCot(q){const r=D.calcular(q);if(r.multiple&&!r.eleccion)return r.minimo;return r.completo?r.total:null;}
+function sumaPor(l,val,mon){const m={};l.forEach(x=>{const v=val(x);if(typeof v==="number"&&isFinite(v)){const k=mon(x)||"COP";m[k]=(m[k]||0)+v;}});return m;}
+function fmtSumas(m){const ks=Object.keys(m).filter(k=>m[k]).sort((a,b)=>a==="COP"?-1:b==="COP"?1:a.localeCompare(b));
+  if(!ks.length)return esc(fmtCOP(0));return ks.map((k,i)=>i?'<span class="otra-mon">+ '+esc(D.fmtMoneda(m[k],k))+' '+k+'</span>':esc(D.fmtMoneda(m[k],k))+(ks.length>1?' <small>'+k+'</small>':'')).join("");}
+const cop=m=>m.COP||0;
+function datosMes(k){
+  const clientes=S.clientes.filter(c=>mesClave(c.creadoEn)===k);
+  const cots=S.cotizaciones.filter(q=>mesDeCot(q)===k);
+  const aceptadas=S.cotizaciones.filter(q=>{const f=fechaAceptada(q);return q.estado==="aceptada"&&f&&mesClave(f)===k;});
+  const ventas=S.reservas.filter(r=>r.estado!=="cancelada"&&mesDeRes(r)===k);
+  const ab=S.abonos.filter(a=>String(a.fecha||"").slice(0,7)===k).map(a=>{const p=S.pagos.find(p=>p.id===a.pagoId);const r=p&&S.reservas.find(x=>x.id===p.reservaId);return {a:a,p:p,m:(p&&p.moneda)||(r?monRes(r):"COP")};}).filter(x=>x.p);
+  const rec=sumaPor(ab.filter(x=>x.p.tipo==="cobro"),x=>x.a.valor,x=>x.m),pag=sumaPor(ab.filter(x=>x.p.tipo==="pago"),x=>x.a.valor,x=>x.m),dif={};
+  new Set(Object.keys(rec).concat(Object.keys(pag))).forEach(m=>dif[m]=(rec[m]||0)-(pag[m]||0));
+  return {k:k,clientes:clientes,cots:cots,aceptadas:aceptadas,ventas:ventas,
+    valorCotizado:sumaPor(cots,valorCot,monedaDe),vendido:sumaPor(ventas,valorReserva,monRes),ventasSinValor:ventas.filter(r=>valorReserva(r)==null).length,
+    recibido:rec,pagado:pag,diferencia:dif,
+    conversion:cots.length?Math.round(cots.filter(q=>q.estado==="aceptada").length/cots.length*100):null};
+}
+function deltaHTML(a,b,dinero){
+  if(b==null)return "";
+  const anterior=mesLabel(mesMover(S.mesRes,-1)).split(" ")[0];
+  if(!b&&!a)return '<span class="k">Igual que en '+anterior+'</span>';
+  if(!b)return '<span class="k">▲ Nuevo frente a '+anterior+' (sin registros)</span>';
+  const p=Math.round((a-b)/b*100);
+  return '<span class="k">'+(p>0?"▲ "+p+"%":p<0?"▼ "+(-p)+"%":"Igual")+' frente a '+anterior+(dinero?' ('+esc(fmtCOP(b))+')':' ('+b+')')+'</span>';
+}
+function agrupar(lista,clave,valor){
+  const m=new Map();
+  lista.forEach(x=>{const k=clave(x)||"Sin dato";const g=m.get(k)||{k:k,n:0,v:0};g.n++;g.v+=(valor?valor(x):0)||0;m.set(k,g);});
+  return [...m.values()].sort((a,b)=>b.n-a.n||b.v-a.v||String(a.k).localeCompare(String(b.k),"es"));
+}
+function graficoMeses(){
+  const ks=[];for(let i=5;i>=0;i--)ks.push(mesMover(S.mesRes,-i));
+  const datos=ks.map(k=>{const dm=datosMes(k);return {k:k,v:cop(dm.vendido),n:dm.ventas.length};});
+  const max=Math.max(1,...datos.map(d=>d.v));
+  const corto=v=>v>=1e6?(Math.round(v/1e5)/10).toString().replace(".",",")+" M":v>=1e3?Math.round(v/1e3)+" mil":fmtCOP(v);
+  const bars=datos.map((d,i)=>{
+    const sel=d.k===S.mesRes,pc=d.v>0?Math.max(2,Math.round(d.v/max*100)):0;
+    const etiqueta=mesLabel(d.k)+": "+fmtCOP(d.v)+" en "+d.n+(d.n===1?" venta":" ventas");
+    return '<button type="button" class="gbar'+(sel?" sel":"")+'" data-mes-ir="'+d.k+'" title="'+esc(etiqueta)+'" aria-label="'+esc(etiqueta)+'"'+(sel?' aria-current="true"':'')+'>'+
+      '<span class="gplot"><span class="gval">'+(sel||i===5?esc(corto(d.v)):'')+'</span><span class="gfill'+(pc?'':' cero')+'" style="height:'+pc+'%"></span></span>'+
+      '<span class="gmes">'+esc(mesCorto(d.k))+'</span></button>';
+  }).join("");
+  return '<figure class="grafico"><div class="gbars" role="group" aria-label="Valor vendido de los últimos 6 meses">'+bars+'</div>'+
+    '<figcaption class="help">Valor vendido en pesos (COP) por mes, según la fecha en que se creó la reserva. Toca una barra para ver ese mes.</figcaption>'+
+    '<details class="help"><summary>Ver los datos</summary><table class="tabla-mini"><thead><tr><th>Mes</th><th>Ventas</th><th>Valor vendido</th></tr></thead><tbody>'+
+      datos.slice().reverse().map(d=>'<tr><td>'+esc(mesLabel(d.k))+'</td><td class="num">'+d.n+'</td><td class="num">'+esc(fmtCOP(d.v))+'</td></tr>').join("")+'</tbody></table></details></figure>';
+}
+function tablaHTML(titulo,cols,filas,vacio,clase){
+  return '<div class="panel panel-pad"><h2>'+esc(titulo)+'</h2>'+(filas.length?'<div class="tabla-wrap"><table class="tabla-mini'+(clase?" "+clase:"")+'"><thead><tr>'+cols.map((c,i)=>'<th'+(i?' class="num"':'')+'>'+esc(c)+'</th>').join("")+'</tr></thead><tbody>'+
+    filas.map(f=>'<tr>'+f.map((x,i)=>'<td'+(i?' class="num"':'')+'>'+x+'</td>').join("")+'</tr>').join("")+'</tbody></table></div>':'<p class="muted" style="margin:6px 0 0">'+esc(vacio)+'</p>')+'</div>';
+}
+function viewResumen(){
+  if(!S.mesRes)S.mesRes=mesActual();
+  const d=datosMes(S.mesRes),a=datosMes(mesMover(S.mesRes,-1));
+  let h='<div class="page-head"><div><span class="eyebrow">Resumen mensual</span><h1>'+esc(mesLabel(S.mesRes).replace(/^./,c=>c.toUpperCase()))+'</h1></div>'+
+    '<div class="actions">'+selectMesHTML("resMes",S.mesRes,false,"data-mes-res")+'<button class="btn" data-act="exp-mes">Descargar para Excel</button></div></div>';
+  h+=bannerEstado();
+  h+='<div class="kpis">'+
+    '<div class="kpi lead"><span class="k">Valor vendido</span><span class="v money">'+fmtSumas(d.vendido)+'</span><span class="k">'+d.ventas.length+(d.ventas.length===1?" venta (reserva)":" ventas (reservas)")+'</span>'+deltaHTML(cop(d.vendido),cop(a.vendido),true)+'</div>'+
+    '<div class="kpi"><span class="k">Clientes nuevos</span><span class="v">'+d.clientes.length+'</span>'+deltaHTML(d.clientes.length,a.clientes.length)+'</div>'+
+    '<div class="kpi"><span class="k">Cotizaciones elaboradas</span><span class="v">'+d.cots.length+'</span><span class="k">'+(d.conversion!=null?d.conversion+"% ya aceptadas":"—")+'</span>'+deltaHTML(d.cots.length,a.cots.length)+'</div>'+
+    '<div class="kpi"><span class="k">Cotizaciones aceptadas en el mes</span><span class="v">'+d.aceptadas.length+'</span>'+deltaHTML(d.aceptadas.length,a.aceptadas.length)+'</div>'+
+    '<div class="kpi"><span class="k">Recibido de clientes</span><span class="v money" style="font-size:22px">'+fmtSumas(d.recibido)+'</span>'+deltaHTML(cop(d.recibido),cop(a.recibido),true)+'</div>'+
+    '<div class="kpi"><span class="k">Pagado a proveedores</span><span class="v money" style="font-size:22px">'+fmtSumas(d.pagado)+'</span></div>'+
+    '<div class="kpi"><span class="k">Diferencia recibido − pagado</span><span class="v money" style="font-size:22px">'+fmtSumas(d.diferencia)+'</span><span class="k">Movimiento de caja del mes</span></div>'+
+    '<div class="kpi"><span class="k">Valor cotizado</span><span class="v money" style="font-size:22px">'+fmtSumas(d.valorCotizado)+'</span><span class="k">Con varias opciones se cuenta la menor</span></div></div>';
+  if(d.ventasSinValor)h+='<div class="banner warn">'+d.ventasSinValor+(d.ventasSinValor===1?" venta no tiene":" ventas no tienen")+' valor del viaje: ábrela y toca <b>Programar pagos</b> para registrarlo.</div>';
+  h+='<div class="panel panel-pad"><h2>Ventas de los últimos 6 meses</h2>'+graficoMeses()+'</div>';
+  const nom=id=>esc(nombrePersona(id).replace(" (tú)",""));
+  const asesores=new Set(d.cots.map(q=>q.asesorId).concat(d.ventas.map(r=>r.asesorId)));
+  h+='<div class="cols">'+
+    tablaHTML("¿De dónde llegaron los clientes?",["Origen","Clientes"],agrupar(d.clientes,c=>c.origen).map(g=>[esc(g.k),g.n]),"No hay clientes nuevos este mes.")+
+    tablaHTML("Destinos vendidos",["Destino","Ventas","Valor"],agrupar(d.ventas,r=>String(r.destino||"").trim()).map(g=>[esc(g.k),g.n,fmtSumas(sumaPor(d.ventas.filter(r=>(String(r.destino||"").trim()||"Sin dato")===g.k),valorReserva,monRes))]),"No hay ventas este mes.")+'</div>';
+  h+='<div class="cols">'+
+    tablaHTML("Por asesor(a)",["Asesor(a)","Cotizaciones","Ventas","Valor vendido"],[...asesores].map(id=>{const vs=d.ventas.filter(r=>r.asesorId===id);return [nom(id),d.cots.filter(q=>q.asesorId===id).length,vs.length,fmtSumas(sumaPor(vs,valorReserva,monRes))];}).sort((x,y)=>y[2]-x[2]||y[1]-x[1]),"Sin movimiento este mes.")+
+    tablaHTML("Cotizaciones del mes por estado",["Estado","Cotizaciones"],D.ESTADOS.map(e=>[esc(e.l),d.cots.filter(q=>q.estado===e.k).length]).filter(f=>f[1]),"No hay cotizaciones elaboradas este mes.")+'</div>';
+  h+=tablaHTML("Ventas del mes",["Reserva","Valor","Pagado","Saldo"],d.ventas.slice().sort((x,y)=>x.numero-y.numero).map(r=>{const rc=resumenCobros(r),v=valorReserva(r),m=monRes(r);
+    return ['<button type="button" class="linkbtn" data-res="'+esc(r.id)+'">'+esc(RV.codigo(r.numero))+'</button> · '+esc((r.titular||{}).nombre||"")+'<br><span class="help">'+esc(r.destino||"")+' · '+esc(fechasResTxt(r))+'</span>',
+      v!=null?esc(D.fmtMoneda(v,m)):"—",esc(D.fmtMoneda(rc.pagado,m)),v!=null?esc(D.fmtMoneda(Math.max(0,v-rc.pagado),m)):"—"];}),"No hay ventas este mes.","tabla-ventas");
+  h+='<p class="help">'+(S.isAdmin?"Ves los datos de todo el equipo.":"Ves solo tus clientes, cotizaciones y reservas.")+' Una venta cuenta en el mes en que se creó la reserva; un cliente, en el mes en que se registró; una cotización, en su fecha de elaboración.</p>';
+  return h;
+}
+function bindResumen(v){
+  const sel=v.querySelector("[data-mes-res]");if(sel)sel.onchange=()=>{S.mesRes=sel.value;render();};
+  v.querySelectorAll("[data-mes-ir]").forEach(g=>g.onclick=()=>{S.mesRes=g.dataset.mesIr;render();});
+  const ex=v.querySelector('[data-act="exp-mes"]');if(ex)ex.onclick=exportarMes;
+}
+function exportarMes(){
+  const k=S.mesRes,d=datosMes(k),L=[],fila=a=>L.push(a.map(celdaCSV).join(";"));
+  fila(["Resumen de "+mesLabel(k)]);fila([]);
+  fila(["Indicador","Valor"]);
+  fila(["Clientes nuevos",d.clientes.length]);fila(["Cotizaciones elaboradas",d.cots.length]);fila(["Cotizaciones aceptadas en el mes",d.aceptadas.length]);
+  fila(["Ventas (reservas)",d.ventas.length]);
+  [["Valor vendido",d.vendido],["Valor cotizado",d.valorCotizado],["Recibido de clientes",d.recibido],["Pagado a proveedores",d.pagado]].forEach(([n,m])=>{const ks=Object.keys(m).filter(x=>m[x]);(ks.length?ks:["COP"]).forEach(x=>fila([n+" "+x,m[x]||0]));});fila([]);
+  fila(["Ventas del mes"]);fila(["Reserva","Titular","Destino","Fechas","Asesor(a)","Moneda","Valor","Pagado"]);
+  d.ventas.forEach(r=>fila([RV.codigo(r.numero),(r.titular||{}).nombre,r.destino,fechasResTxt(r),nombrePersona(r.asesorId).replace(" (tú)",""),monRes(r),valorReserva(r),resumenCobros(r).pagado]));fila([]);
+  fila(["Clientes nuevos"]);fila(["Nombre","WhatsApp","Origen","Destino de interés","Etapa","Registrado"]);
+  d.clientes.forEach(c=>fila([c.nombre,c.telefono,c.origen,c.destinos,etapaLabel(c.etapa),fmtFechaTs(c.creadoEn)]));fila([]);
+  fila(["Cotizaciones elaboradas"]);fila(["Número","Cliente","Destino","Estado","Moneda","Valor"]);
+  d.cots.forEach(q=>fila([D.codigo(q.numero),(q.cliente||{}).nombre,(q.viaje||{}).destinos,estadoLabel(q.estado),monedaDe(q),valorCot(q)]));
+  descargar("diamond-travel-resumen-"+k+".csv","﻿"+L.join("\r\n"));
 }
 
 /* ---------- Datos de prueba (solo administrador) ---------- */

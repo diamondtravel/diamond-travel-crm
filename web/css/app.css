@@ -356,3 +356,30 @@ p.err{color:var(--bad)}
 .fecha-sel .chips{align-items:center}
 .fecha-chip[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
 .dot-err{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--bad);margin-left:4px;vertical-align:middle}
+/* --- Resumen mensual --- */
+:root{--bar:#2B4C8C;--bar-sel:#B8913A}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bar:#8FB0EE;--bar-sel:#D2AD5B}}
+:root[data-theme="dark"]{--bar:#8FB0EE;--bar-sel:#D2AD5B}
+.grafico{margin:8px 0 0;display:flex;flex-direction:column;gap:8px}
+.gbars{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;border-bottom:1px solid var(--line);padding-top:4px}
+.gbar{background:none;border:0;padding:0;font:inherit;cursor:pointer;display:flex;flex-direction:column;align-items:stretch;gap:0;border-radius:6px;min-width:0}
+.gbar:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.gplot{height:170px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding:0 12%}
+.gfill{display:block;width:100%;max-width:64px;background:var(--bar);opacity:.55;border-radius:4px 4px 0 0;transition:opacity .15s}
+.gfill.cero{height:2px!important;background:var(--line);opacity:1;border-radius:0}
+.gbar:hover .gfill:not(.cero){opacity:.85}
+.gbar.sel .gfill:not(.cero){background:var(--bar-sel);opacity:1}
+.gval{font-size:13px;font-weight:700;color:var(--ink);min-height:20px;white-space:nowrap}
+.gmes{font-size:13px;color:var(--muted);text-transform:capitalize;padding:6px 0 4px;text-align:center;border-top:1px solid var(--line)}
+.gbar.sel .gmes{color:var(--ink);font-weight:700}
+.tabla-wrap{overflow-x:auto;margin-top:8px}
+.tabla-mini{width:100%;border-collapse:collapse;font-size:14px}
+.tabla-mini th{text-align:left;font-size:12px;color:var(--muted);font-weight:600;padding:8px 8px;border-bottom:1px solid var(--line)}
+.tabla-mini td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.tabla-mini .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.mes-aviso{margin:-4px 0 0}
+.otra-mon{display:block;font-size:14px;color:var(--muted);font-weight:600}
+.kpi .v small{font-size:12px;color:var(--muted)}
+.page-head > .actions{flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px}
+.page-head > .actions select{flex:none!important}
+.tabla-ventas td:first-child{min-width:170px}
